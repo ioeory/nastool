@@ -1,0 +1,55 @@
+# docker-compose.dev.yml
+# 开发模式覆盖配置
+# 使用方式: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 特性:
+#   - 后端: bind mount app/ 源码 + uvicorn --reload 热更新（Python 代码改动立即生效）
+#   - 前端: 运行 Vite dev server，支持 HMR 热模块替换（Vue 代码改动浏览器自动刷新）
+#   - 前端开发端口: 5173（访问 http://localhost:5173）
+
+services:
+  backend:
+    # 覆盖启动命令：开启 reload 模式
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "3001"
+      - --reload
+      - --reload-dir
+      - /app/app
+      - --log-level
+      - debug
+    environment:
+      - DEBUG=true
+    volumes:
+      # bind mount 后端源码，配合 --reload 实现热更新
+      - ./app:/app/app:rw
+
+  # 前端开发服务（替换 nginx 静态服务）
+  frontend-dev:
+    image: node:18-alpine
+    container_name: nastool-frontend-dev
+    working_dir: /app
+    # 先安装依赖（依赖缓存在命名卷里，不会每次重装）再启动 Vite
+    command: sh -c "npm install --prefer-offline 2>/dev/null; npx vite --host 0.0.0.0 --port 5173"
+    stdin_open: true
+    tty: true
+    ports:
+      - "${FRONTEND_DEV_PORT:-5173}:5173"
+    volumes:
+      # bind mount 前端源码，支持 HMR
+      - ./frontend:/app:rw
+      # node_modules 缓存：避免每次重启重新 npm install
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://backend:3001
+    networks:
+      - nastool-net
+
+volumes:
+  frontend_node_modules:
