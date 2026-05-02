@@ -23,8 +23,35 @@
           <el-form-item label="代理地址">
             <el-input v-model="form.PROXY_HOST" placeholder="http://127.0.0.1:7890 (可选)" />
           </el-form-item>
+          <el-form-item label="启用代理">
+            <el-switch v-model="form.USE_PROXY" />
+            <span class="field-hint-inline">开启后内部请求可走上述代理（依后端实现）</span>
+          </el-form-item>
           <el-form-item label="TMDB API Key">
             <el-input v-model="form.TMDB_API_KEY" placeholder="(可选) 用于获取剧情、海报等" />
+          </el-form-item>
+        </el-card>
+
+        <el-card shadow="never" class="settings-card">
+          <template #header>
+            <div class="card-header">全局 qBittorrent 默认（与「下载器节点」并存）</div>
+          </template>
+          <el-form-item label="地址">
+            <el-input v-model="form.QB_HOST" placeholder="http://127.0.0.1:8080" />
+          </el-form-item>
+          <el-form-item label="用户名">
+            <el-input v-model="form.QB_USERNAME" autocomplete="off" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="form.QB_PASSWORD" type="password" show-password autocomplete="new-password" />
+          </el-form-item>
+          <el-form-item label="默认分类">
+            <el-input v-model="form.QB_CATEGORY" placeholder="nastool" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" size="small" plain :loading="testingQb" @click="testQbConnection">
+              测试连接
+            </el-button>
           </el-form-item>
         </el-card>
 
@@ -109,13 +136,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElLoading } from 'element-plus'
-import { Connection, Check } from '@element-plus/icons-vue'
 import { systemApi } from '@/api'
 
-const loading = ref(false)
-const saving = ref(false)
-
-const form = ref({
+/** 与后端 system/settings 白名单一致，保证加载合并不漏键 */
+const DEFAULT_SETTINGS = {
+  QB_HOST: '',
+  QB_USERNAME: '',
+  QB_PASSWORD: '',
+  QB_CATEGORY: '',
   LIBRARY_PATH: '',
   PROXY_HOST: '',
   USE_PROXY: false,
@@ -131,8 +159,14 @@ const form = ref({
   WECHAT_AGENT_ID: '',
   COOKIECLOUD_HOST: '',
   COOKIECLOUD_KEY: '',
-  COOKIECLOUD_PASSWORD: ''
-})
+  COOKIECLOUD_PASSWORD: '',
+}
+
+const loading = ref(false)
+const saving = ref(false)
+const testingQb = ref(false)
+
+const form = ref({ ...DEFAULT_SETTINGS })
 
 onMounted(async () => {
   await loadSettings()
@@ -143,12 +177,7 @@ async function loadSettings() {
   try {
     const res = await systemApi.getSettings()
     if (res.data) {
-      // 合并到 form 变量
-      for (const k in res.data) {
-        if (form.value.hasOwnProperty(k)) {
-          form.value[k] = res.data[k]
-        }
-      }
+      Object.assign(form.value, DEFAULT_SETTINGS, res.data)
     }
   } catch (e) {
     console.error(e)
@@ -170,7 +199,7 @@ async function saveSettings() {
 }
 
 async function testNotification(channel) {
-  const loading = ElLoading.service({ text: `正在发送 ${channel} 测试消息...` })
+  const loadingInst = ElLoading.service({ text: `正在发送 ${channel} 测试消息...` })
   try {
     const res = await systemApi.testNotification({
       channel: channel,
@@ -184,7 +213,27 @@ async function testNotification(channel) {
   } catch (e) {
     ElMessage.error('测试组件连接失败，请检查后端状态')
   } finally {
-    loading.close()
+    loadingInst.close()
+  }
+}
+
+async function testQbConnection() {
+  testingQb.value = true
+  try {
+    const res = await systemApi.testQb({
+      host: form.value.QB_HOST,
+      username: form.value.QB_USERNAME,
+      password: form.value.QB_PASSWORD,
+    })
+    if (res.code === 0) {
+      ElMessage.success(res.message || '连接成功')
+    } else {
+      ElMessage.error(res.message || '连接失败')
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    testingQb.value = false
   }
 }
 
@@ -247,6 +296,12 @@ async function testNotification(channel) {
 
 :deep(.el-input__inner) {
   color: #fff;
+}
+
+.field-hint-inline {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .bottom-actions {

@@ -1,5 +1,11 @@
 <template>
   <div class="dashboard">
+    <div v-if="sysInfo" class="sys-info-strip">
+      <span class="app">{{ sysInfo.app_name }}</span>
+      <span class="meta">v{{ sysInfo.version }} · {{ sysInfo.db_type }}</span>
+      <span class="meta platform" :title="sysInfo.platform">{{ shortPlatform }}</span>
+    </div>
+
     <!-- 实时看板 -->
     <div class="stat-grid speed-grid">
       <div class="stat-card speed-card down">
@@ -64,11 +70,11 @@
           <div class="history-item" v-for="h in recentHistory.slice(0, 6)" :key="h.id">
             <div class="h-main">
               <span class="h-name">{{ h.name }}</span>
-              <el-tag :type="h.status === 'success' ? 'success' : 'danger'" size="small">
-                {{ h.status === 'success' ? '完成' : '失败' }}
+              <el-tag :type="activityTagType(h.status)" size="small">
+                {{ activityStatusText(h.status) }}
               </el-tag>
             </div>
-            <div class="h-time">{{ formatTime(h.end_time) }}</div>
+            <div class="h-time">{{ formatActivityTime(h) }}</div>
           </div>
         </div>
       </div>
@@ -77,10 +83,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { 
-  Monitor, Bell, List, Setting, 
-  Download, Upload, Timer, Clock 
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import {
+  Monitor, Bell, List,
+  Download, Upload, Timer, Clock
 } from '@element-plus/icons-vue'
 import { siteApi, systemApi, downloaderApi, automationApi } from '@/api'
 
@@ -88,11 +94,18 @@ const loading = ref(false)
 const sites = ref([])
 const recentHistory = ref([])
 const speed = ref({ dl: 0, ul: 0 })
+const sysInfo = ref(null)
+
+const shortPlatform = computed(() => {
+  const p = sysInfo.value?.platform || ''
+  return p.length > 48 ? `${p.slice(0, 48)}…` : p
+})
 
 const stats = ref([
   { key: 'active_sites', label: '活跃站点', value: 0, icon: 'Monitor', color: 'linear-gradient(135deg,#6366f1,#8b5cf6)' },
   { key: 'total_subscribes', label: '全部规则', value: 0, icon: 'Bell', color: 'linear-gradient(135deg,#f59e0b,#ef4444)' },
   { key: 'today_transfers', label: '今日整理', value: 0, icon: 'Clock', color: 'linear-gradient(135deg,#22c55e,#16a34a)' },
+  { key: 'total_transfers', label: '累计整理', value: 0, icon: 'List', color: 'linear-gradient(135deg,#14b8a6,#0d9488)' },
   { key: 'total_downloads', label: '累计下载', value: 0, icon: 'Download', color: 'linear-gradient(135deg,#3b82f6,#2563eb)' },
 ])
 
@@ -119,6 +132,11 @@ async function fetchData() {
         if (res.data[s.key] !== undefined) s.value = res.data[s.key]
       })
     }
+  } catch {}
+
+  try {
+    const infoRes = await systemApi.info()
+    if (infoRes.data) sysInfo.value = infoRes.data
   } catch {}
 
   // 2. 站点列表
@@ -159,16 +177,52 @@ function formatTime(t) {
   const date = new Date(t)
   return `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')}:${date.getSeconds().toString().padStart(2,'0')}`
 }
+
+function activityTagType(status) {
+  if (status === 'success') return 'success'
+  if (status === 'fail') return 'danger'
+  if (status === 'running') return 'primary'
+  return 'info'
+}
+
+function activityStatusText(status) {
+  if (status === 'success') return '完成'
+  if (status === 'fail') return '失败'
+  if (status === 'running') return '进行中'
+  return status || '-'
+}
+
+function formatActivityTime(h) {
+  const t = h.end_time || h.start_time
+  return formatTime(t)
+}
 </script>
 
 <style lang="scss" scoped>
 .dashboard { display: flex; flex-direction: column; gap: 24px; }
 
+.sys-info-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  .app { font-weight: 600; color: var(--text-primary); }
+  .meta { color: var(--text-muted); }
+  .platform { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
-  @media (max-width: 1000px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 1200px) { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 800px) { grid-template-columns: repeat(2, 1fr); }
 }
 
 .speed-grid {

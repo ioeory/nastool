@@ -256,8 +256,8 @@ async function handleDelete(auto) {
 async function handleToggle(auto) {
   try {
     await automationApi.toggle(auto.id)
-    ElMessage.success(`${auto.is_active ? '开启' : '关闭'}: ${auto.name}`)
-    fetchData()
+    ElMessage.success('状态已更新')
+    await fetchData()
   } catch {
     auto.is_active = !auto.is_active
     ElMessage.error('操作失败')

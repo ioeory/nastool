@@ -38,7 +38,7 @@
         </el-menu-item>
         <el-menu-item index="/history">
           <el-icon><List /></el-icon>
-          <template #title>整理历史</template>
+          <template #title>历史记录</template>
         </el-menu-item>
         <el-menu-item index="/workflow">
           <el-icon><Operation /></el-icon>
@@ -61,6 +61,14 @@
           {{ authStore.user?.name?.charAt(0).toUpperCase() }}
         </el-avatar>
         <span class="user-name">{{ authStore.user?.name }}</span>
+        <el-button
+          :icon="Key"
+          circle
+          size="small"
+          class="logout-btn"
+          title="修改密码"
+          @click="openPasswordDialog"
+        />
         <el-button
           :icon="SwitchButton"
           circle
@@ -91,22 +99,84 @@
         </router-view>
       </el-main>
     </el-container>
+
+    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="400px" destroy-on-close>
+      <el-form :model="pwdForm" label-width="100px" @submit.prevent>
+        <el-form-item label="当前密码" required>
+          <el-input v-model="pwdForm.old_password" type="password" show-password autocomplete="current-password" />
+        </el-form-item>
+        <el-form-item label="新密码" required>
+          <el-input v-model="pwdForm.new_password" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item label="确认新密码" required>
+          <el-input v-model="pwdForm.confirm_password" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">确定</el-button>
+      </template>
+    </el-dialog>
   </el-container>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Odometer, Monitor, Search, Bell, List, Setting, Connection, Compass,
-  SwitchButton, Expand, Fold, Operation
+  SwitchButton, Expand, Fold, Operation, Key
 } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const collapsed = ref(false)
+const pwdDialogVisible = ref(false)
+const pwdSubmitting = ref(false)
+const pwdForm = reactive({
+  old_password: '',
+  new_password: '',
+  confirm_password: '',
+})
+
+function openPasswordDialog() {
+  pwdForm.old_password = ''
+  pwdForm.new_password = ''
+  pwdForm.confirm_password = ''
+  pwdDialogVisible.value = true
+}
+
+async function submitPassword() {
+  if (!pwdForm.old_password || !pwdForm.new_password) {
+    ElMessage.warning('请填写完整')
+    return
+  }
+  if (pwdForm.new_password.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (pwdForm.new_password !== pwdForm.confirm_password) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  pwdSubmitting.value = true
+  try {
+    const res = await authApi.changePassword(pwdForm.old_password, pwdForm.new_password)
+    if (res.code === 0) {
+      ElMessage.success(res.message || '密码已更新')
+      pwdDialogVisible.value = false
+    } else {
+      ElMessage.error(res.message || '修改失败')
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || e.message || '修改失败')
+  } finally {
+    pwdSubmitting.value = false
+  }
+}
 
 async function handleLogout() {
   await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })

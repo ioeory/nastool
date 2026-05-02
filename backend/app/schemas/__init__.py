@@ -63,6 +63,12 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChangePasswordBody(BaseModel):
+    """修改登录密码"""
+    old_password: str
+    new_password: str
+
+
 # ---- 站点 ----
 class SiteCreate(BaseModel):
     """手动添加站点"""

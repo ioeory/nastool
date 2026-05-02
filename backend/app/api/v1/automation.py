@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,13 +39,16 @@ async def list_automations(
 
 @router.get("/history", response_model=Response, summary="获取任务运行历史")
 async def get_history(
-    limit: int = 20,
+    limit: int = 50,
+    automation_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(AutomationHistory).order_by(AutomationHistory.start_time.desc()).limit(limit)
-    )
+    stmt = select(AutomationHistory).order_by(AutomationHistory.start_time.desc())
+    if automation_id is not None:
+        stmt = stmt.where(AutomationHistory.automation_id == automation_id)
+    stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
     history = result.scalars().all()
     return {"code": 0, "message": "success", "data": [{
         "id": h.id,

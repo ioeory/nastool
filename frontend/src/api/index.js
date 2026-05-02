@@ -9,6 +9,8 @@ export const authApi = {
     return http.post('/auth/login', form)
   },
   me: () => http.get('/auth/me'),
+  changePassword: (old_password, new_password) =>
+    http.post('/auth/change-password', { old_password, new_password }),
 }
 
 // ---- 站点管理 ----
@@ -60,12 +62,24 @@ export const subscribeApi = {
 }
 export const automationApi = {
   list: () => http.get('/automation/'),
-  history: (id) => http.get('/automation/history', { params: { automation_id: id } }),
+  history: (automationId) => {
+    const params = { limit: 80 }
+    if (automationId != null && automationId !== undefined) {
+      params.automation_id = automationId
+    }
+    return http.get('/automation/history', { params })
+  },
   add: (data) => http.post('/automation/', data),
   run: (id) => http.post(`/automation/${id}/run`),
   toggle: (id) => http.post(`/automation/${id}/toggle`),
   update: (id, data) => http.patch(`/automation/${id}`, data),
   delete: (id) => http.delete(`/automation/${id}`),
+}
+
+// ---- 整理/下载历史 ----
+export const historyApi = {
+  transfers: (params) => http.get('/history/transfers', { params }),
+  downloads: (params) => http.get('/history/downloads', { params }),
 }
 
 export { tmdbApi } from './tmdb'
