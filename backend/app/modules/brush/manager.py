@@ -3,8 +3,10 @@
 负责：RSS 抓种 → 过滤 → 绑定下载器下发 → 定期删种
 """
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Set
 from loguru import logger
+
+import arrow
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,23 @@ from app.modules.indexer import IndexerModule
 from app.schemas import TorrentItem
 
 
+def _torrent_age_minutes(pubdate: Optional[str]) -> Optional[float]:
+    """返回种子发布时间距今的分钟数；无法解析则返回 None（调用方通常视为不拦截）。"""
+    if not pubdate or not str(pubdate).strip():
+        return None
+    try:
+        dt = arrow.get(pubdate.strip())
+        return (arrow.now("UTC") - dt.to("UTC")).total_seconds() / 60.0
+    except Exception:
+        return None
+
+
+def _parse_exclude_label_set(raw: Optional[str]) -> Set[str]:
+    if not raw:
+        return set()
+    return {x.strip().lower() for x in str(raw).split(",") if x.strip()}
+
+
 class BrushManager:
     """
     站点刷流管理器
@@ -26,8 +45,10 @@ class BrushManager:
       - max_tasks: int       — 单次最多推送种子数
       - keep_volume: float   — 保留磁盘体积上限(GB)
       - category: str        — 下载器分类标签，默认 Brushing
-      - selection_rules: {}  — 选种规则（含 min_size_gb / max_size_gb，0 表示不限）
-      - delete_rules: {}     — 删种规则（含 delete_files：是否同时删本地文件）
+      - selection_rules: {}  — 选种规则（min/max 体积、max_pub_time 分钟、include_free 等）
+      - delete_rules: {}     — 删种规则（exclude_labels：含任一标签则不删）
+      - save_path: str       — 可选，覆盖下载保存路径
+      - dynamic_delete: bool — 默认 True；False 则本轮不执行删种清理
     """
 
     def __init__(self, db: Optional[AsyncSession] = None):
@@ -114,8 +135,10 @@ class BrushManager:
             if not new_torrents:
                 return f"扫描 {len(site_ids)} 站，抓取 {len(torrents)} 种，匹配 {len(filtered)} 种，已下载过 (去重后 0)"
 
-            # 6. 先清理超出规则的旧种子腾出空间
-            deleted_count = await self._cleanup_by_rules(downloader, config)
+            # 6. 先清理超出规则的旧种子腾出空间（可关闭）
+            deleted_count = 0
+            if config.get("dynamic_delete", True):
+                deleted_count = await self._cleanup_by_rules(downloader, config)
 
             # 7. 检查保种体积上限
             max_tasks: int = config.get("max_tasks", 3)
@@ -157,6 +180,7 @@ class BrushManager:
         min_size: float = rules.get("min_size_gb", 0) * 1024**3
         max_size: float = rules.get("max_size_gb", 0) * 1024**3
         max_seeders: int = rules.get("max_seeders", 0)     # 0 = 不限
+        max_pub_time: int = int(rules.get("max_pub_time", 0) or 0)  # 分钟，仅接受「发布时间」距今不超过此值的种子；0=不限
 
         matched = []
         for t in torrents:
@@ -183,6 +207,12 @@ class BrushManager:
             # --- 做种人数过滤 ---
             if max_seeders > 0 and (t.seeders or 0) > max_seeders:
                 continue
+
+            # --- 发布时间（种子年龄上限，分钟）---
+            if max_pub_time > 0:
+                age_min = _torrent_age_minutes(t.pubdate)
+                if age_min is not None and age_min > float(max_pub_time):
+                    continue
 
             matched.append(t)
 
@@ -329,6 +359,7 @@ class BrushManager:
         min_seeding_hours: float = delete_rules.get("min_seeding_hours", 2)
         min_ratio: float = delete_rules.get("min_ratio", 1.0)
         delete_files: bool = bool(delete_rules.get("delete_files", False))
+        exclude_labels = _parse_exclude_label_set(delete_rules.get("exclude_labels"))
         category: str = config.get("category", "Brushing")
 
         if downloader.client_type != "qbittorrent":
@@ -347,6 +378,16 @@ class BrushManager:
 
             delete_hashes = []
             for t in torrents:
+                if exclude_labels:
+                    tags_raw = t.get("tags") or ""
+                    tags_lower = {
+                        x.strip().lower()
+                        for x in str(tags_raw).split(",")
+                        if x.strip()
+                    }
+                    if tags_lower & exclude_labels:
+                        continue
+
                 seeding_secs = t.get("seeding_time", 0) or t.get("time_active", 0)
                 ratio = t.get("ratio", 0)
                 seeding_hours = seeding_secs / 3600

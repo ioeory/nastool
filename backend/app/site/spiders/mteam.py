@@ -87,6 +87,13 @@ class MTeamSpider(BaseSpider):
                 
                 detail_url = urljoin(self.url, f"/detail/{torrent_id}")
                 
+                raw_cd = (
+                    item.get("createdDate")
+                    or item.get("created_at")
+                    or item.get("created_at_time")
+                )
+                pubdate_val = str(raw_cd).strip() if raw_cd else None
+
                 t = TorrentItem(
                     site_id=self.site.id,
                     site_name=self.site.name,
@@ -98,6 +105,7 @@ class MTeamSpider(BaseSpider):
                     leechers=int(item.get("status", {}).get("leechers", 0)),
                     downloads=int(item.get("status", {}).get("times", 0)),
                     size=int(item.get("size", 0)),
+                    pubdate=pubdate_val,
                     free="" # Mteam 现在用折扣代替
                 )
                 

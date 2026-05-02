@@ -66,6 +66,13 @@
               <el-input v-model="config.category" placeholder="Brushing" />
             </el-form-item>
           </div>
+          <el-form-item label="保存路径（可选）" style="margin-top: 8px">
+            <el-input
+              v-model="config.save_path"
+              clearable
+              placeholder="留空则使用下载器节点的默认路径；与 qBittorrent 分类默认路径一致时可不填"
+            />
+          </el-form-item>
         </div>
       </el-tab-pane>
 
@@ -88,6 +95,10 @@
               </el-select>
             </el-form-item>
           </div>
+          <el-form-item label="不限优惠类型时仅免费">
+            <el-switch v-model="config.selection_rules.include_free" />
+            <span class="field-hint">仅当上方选择「所有（不限）」时由后端使用：开启则只选免费种；关闭则不做优惠筛选（慎选）</span>
+          </el-form-item>
           <div class="form-grid-3">
             <el-form-item label="最小体积 (GB)">
               <el-input-number
@@ -117,6 +128,7 @@
                 :min="0" placeholder="0=不限"
                 style="width:100%"
               />
+              <span class="field-hint">只接受「发布时间」距今不超过该值的种子；列表无时间字段时不筛选</span>
             </el-form-item>
           </div>
           <div class="tip-box">
@@ -146,7 +158,8 @@
             </el-form-item>
           </div>
           <el-form-item label="排除标签 (逗号分隔)">
-            <el-input v-model="config.delete_rules.exclude_labels" placeholder="H&R,MOVIEPILOT" />
+            <el-input v-model="config.delete_rules.exclude_labels" placeholder="例如 H&R — 命中标签则不删种" />
+            <span class="field-hint">与 qBittorrent 种子标签匹配（忽略大小写）；含任一标签则不自动删该种</span>
           </el-form-item>
           <el-form-item label="删种时删除本地文件">
             <el-switch v-model="config.delete_rules.delete_files" />
@@ -162,20 +175,13 @@
       <!-- =============== 更多配置 =============== -->
       <el-tab-pane label="更多配置" name="more">
         <div class="tab-content">
-          <div class="switch-grid">
-            <el-form-item label="使用 RSS 优先">
-              <el-switch v-model="config.use_rss" />
-            </el-form-item>
-            <el-form-item label="动态删种">
+          <div class="switch-grid switch-grid-single">
+            <el-form-item label="执行前动态删种">
               <el-switch v-model="config.dynamic_delete" />
-            </el-form-item>
-            <el-form-item label="站点顺序刷流">
-              <el-switch v-model="config.sequential" />
-            </el-form-item>
-            <el-form-item label="站点独立配置">
-              <el-switch v-model="config.site_independent" />
+              <span class="switch-hint">关闭后本轮仅推送新种，不先按「删除规则」清理下载器中已有刷流任务</span>
             </el-form-item>
           </div>
+          <p class="more-note">RSS 优先、站点顺序刷流等高级能力尚在开发中；当前刷流统一走站点索引抓取。</p>
         </div>
       </el-tab-pane>
 
@@ -204,9 +210,11 @@ const defaultConfig = {
   max_tasks: 3,
   keep_volume: 100,
   category: 'Brushing',
+  save_path: '',
   selection_rules: {
     exclude_hr: true,
     promotion: 'FREE',
+    include_free: true,
     min_size_gb: 0,
     max_size_gb: 0,
     max_seeders: 100,
@@ -218,10 +226,7 @@ const defaultConfig = {
     exclude_labels: 'H&R',
     delete_files: false,
   },
-  use_rss: true,
   dynamic_delete: true,
-  sequential: false,
-  site_independent: false,
 }
 
 const config = ref(JSON.parse(JSON.stringify(defaultConfig)))
@@ -264,10 +269,6 @@ async function loadData() {
     console.error('BrushConfig: 加载数据失败', e)
   }
 }
-
-watch(config, (newVal) => {
-  emit('update:modelValue', newVal)
-}, { deep: true })
 
 onMounted(loadData)
 </script>
@@ -365,6 +366,17 @@ onMounted(loadData)
 }
 
 /* Switch 网格 */
+.switch-grid-single {
+  grid-template-columns: 1fr;
+}
+
+.more-note {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .switch-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

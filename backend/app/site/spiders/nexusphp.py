@@ -165,6 +165,14 @@ class NexusPHPSpider(BaseSpider):
                         size_str = text
                         break
                 size_bytes = self._parse_size(size_str)
+
+                # 发布时间（常见于 td[title="YYYY-MM-DD hh:mm:ss"]，用于刷流「发布时间」筛选）
+                pubdate_str = None
+                for td in tds:
+                    tit = (td.get("title") or "").strip()
+                    if tit and re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", tit):
+                        pubdate_str = tit
+                        break
                 
                 # 做种数（Seeders）
                 seeders = 0
@@ -192,6 +200,7 @@ class NexusPHPSpider(BaseSpider):
                     detail_url=detail_url,
                     seeders=seeders,
                     size=size_bytes,
+                    pubdate=pubdate_str,
                     free=free_text,
                     hr=is_hr
                 )
