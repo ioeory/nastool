@@ -43,6 +43,7 @@ data/
 media/
 *.db
 *.log
+scripts/
 
 
 # dev
