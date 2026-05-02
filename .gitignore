@@ -40,3 +40,7 @@ data/
 media/
 *.db
 *.log
+
+
+# dev
+config/

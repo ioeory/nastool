@@ -42,8 +42,9 @@ services:
       - ./config:/app/config:ro
       # 将环境变量文件挂载入容器以便动态保存和热重载
       - ./.env:/app/.env:rw
-      # ⚡ 开发用: bind mount 后端源码，修改 Python 无需重建镜像
-      - ./app:/app/app:rw
+      # 后端源码请勿在此 bind mount：宿主机 ./app 若不存在会变成空目录，
+      # 覆盖镜像内 /app/app 导致 uvicorn 无法 import app.main。
+      # 开发热更新请使用: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
     networks:
       - nastool-net
     healthcheck:

@@ -51,14 +51,34 @@ jobs:
             type=sha
             type=raw,value=latest
 
-      - name: Build and push Backend Docker image
+      # 先 load 到本地并做冒烟测试，再推送；避免 GHCR 上出现无法 import app.main 的坏镜像
+      - name: Build Backend image (local, for smoke test)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile.backend
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          load: true
+          tags: nastool-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test Backend image
+        run: |
+          docker run --rm nastool-backend:ci \
+            python -c "import app.main; print('app.main import OK')"
+
+      - name: Push Backend Docker image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Extract metadata (tags, labels) for Frontend
         id: meta-frontend
@@ -71,11 +91,34 @@ jobs:
             type=sha
             type=raw,value=latest
 
-      - name: Build and push Frontend Docker image
+      - name: Build Frontend image (local, for smoke test)
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           file: ./frontend/Dockerfile.frontend
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
+          load: true
+          tags: nastool-frontend:ci
+          build-args: |
+            VITE_API_BASE_URL=http://backend:3001
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test Frontend image
+        run: |
+          docker run --rm --entrypoint sh nastool-frontend:ci \
+            -c 'test -f /usr/share/nginx/html/index.html && echo "frontend static OK"'
+
+      - name: Push Frontend Docker image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile.frontend
+          push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
+          build-args: |
+            VITE_API_BASE_URL=http://backend:3001
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
