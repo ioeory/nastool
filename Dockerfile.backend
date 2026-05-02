@@ -1,14 +1,18 @@
 # ============================================================
 # 后端 Dockerfile
 # 多阶段构建：builder 安装依赖，runner 最小化运行时
+#
+# 可选组件 Playwright + Chromium 体积极大（常 400MB+），默认不安装。
+# 需要站点浏览器绕过（Cloudflare 等）时使用：
+#   docker build --build-arg WITH_PLAYWRIGHT_BROWSER=1 ... -f Dockerfile.backend .
 # ============================================================
 
 # ---- 阶段1：安装依赖 ----
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 WORKDIR /build
 
-# 系统依赖
+# 编译依赖（仅在 builder，不进最终镜像）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libxml2-dev \
@@ -16,44 +20,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 先复制依赖声明，利用 Docker 层缓存
 COPY requirements.txt ./
 
-# 安装到用户目录
-RUN pip install --upgrade pip \
-    && pip install --user --no-cache-dir -r requirements.txt \
-    && pip install --user --no-cache-dir playwright \
-    && python -m playwright install chromium --with-deps
+# 默认排除 playwright 包；启用浏览器时再安装（见下方 ARG）
+ARG WITH_PLAYWRIGHT_BROWSER=0
+
+RUN mkdir -p /root/.cache/ms-playwright \
+    && grep -vE '^[[:space:]]*playwright' requirements.txt > /tmp/requirements.no_pw.txt \
+    && pip install --upgrade pip \
+    && pip install --user --no-cache-dir -r /tmp/requirements.no_pw.txt \
+    && rm /tmp/requirements.no_pw.txt \
+    && if [ "$WITH_PLAYWRIGHT_BROWSER" = "1" ]; then \
+         pip install --user --no-cache-dir "playwright>=1.35.0" \
+         && python -m playwright install chromium; \
+       fi
 
 # ---- 阶段2：运行时 ----
-FROM python:3.11-slim AS runner
+FROM python:3.11-slim-bookworm AS runner
 
 LABEL maintainer="nastool"
 LABEL description="NAS 媒体库自动化管理工具 — 后端"
 
-# 系统运行时依赖
+ARG WITH_PLAYWRIGHT_BROWSER=0
+
+# 系统运行时依赖（libxml/libxslt：站点解析；curl：健康检查）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2 \
     libxslt1.1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 创建非 root 用户（安全最佳实践）
 RUN useradd -m -u 1000 nastool
 
 WORKDIR /app
 
-# 从 builder 阶段复制已安装的包
 COPY --from=builder /root/.local /home/nastool/.local
 COPY --from=builder /root/.cache/ms-playwright /home/nastool/.cache/ms-playwright
 
-# 复制应用代码
 COPY --chown=nastool:nastool app/ ./app/
 COPY --chown=nastool:nastool config/ ./config/
 
-# 创建数据目录
 RUN mkdir -p /data/db /data/logs /data/config \
-    && chown -R nastool:nastool /data
+    && chown -R nastool:nastool /data /home/nastool/.local /home/nastool/.cache
+
+# 浏览器启用时：安装 Chromium 动态链接所需系统库（与 builder 阶段分离，单层 apt）
+RUN if [ "$WITH_PLAYWRIGHT_BROWSER" = "1" ]; then \
+      apt-get update \
+      && PYTHONPATH="/home/nastool/.local/lib/python3.11/site-packages" \
+         python3 -m playwright install-deps chromium \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 USER nastool
 

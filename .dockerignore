@@ -1,0 +1,23 @@
+# Git / IDE
+.git
+.github
+.cursor
+*.md
+LICENSE
+
+# 前端与文档不参与后端镜像构建（Dockerfile 仅 COPY app、config）
+frontend
+
+# 本地数据与环境（勿打进镜像）
+.env
+.env.*
+data
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+
+# 测试与辅助
+tests
+*.log

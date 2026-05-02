@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      args:
+        # 默认不装 Playwright/Chromium，镜像小；需要浏览器自动化时再设为 1（见 Dockerfile.backend 注释）
+        WITH_PLAYWRIGHT_BROWSER: ${WITH_PLAYWRIGHT_BROWSER:-0}
     container_name: nastool-backend
     restart: unless-stopped
     environment:

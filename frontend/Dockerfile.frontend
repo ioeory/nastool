@@ -11,8 +11,8 @@ WORKDIR /app
 # 为了网络环境可能的限制，使用 npm 默认 registry 并在需要时可通过 build-args 替换
 COPY package.json ./
 
-# 由于没有 package-lock.json，直接 npm install
-RUN npm install
+# 构建阶段：安装全部依赖（含 Vite）；最终镜像仅为 nginx + dist，不含 node_modules
+RUN npm install --no-audit --no-fund
 
 COPY . .
 
@@ -20,7 +20,8 @@ COPY . .
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-RUN npm run build
+RUN npm run build \
+    && npm cache clean --force --loglevel=error
 
 # ---- 阶段 2：生产环境 ----
 FROM nginx:alpine AS runner
