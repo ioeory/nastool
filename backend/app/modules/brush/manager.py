@@ -26,7 +26,7 @@ class BrushManager:
       - max_tasks: int       — 单次最多推送种子数
       - keep_volume: float   — 保留磁盘体积上限(GB)
       - category: str        — 下载器分类标签，默认 Brushing
-      - selection_rules: {}  — 选种规则
+      - selection_rules: {}  — 选种规则（含 min_size_gb / max_size_gb，0 表示不限）
       - delete_rules: {}     — 删种规则（含 delete_files：是否同时删本地文件）
     """
 

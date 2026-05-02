@@ -96,6 +96,14 @@
                 style="width:100%"
               />
             </el-form-item>
+            <el-form-item label="最大体积 (GB)">
+              <el-input-number
+                v-model="config.selection_rules.max_size_gb"
+                :min="0" :precision="1" :step="0.5"
+                style="width:100%"
+              />
+              <span class="field-hint">0 = 不限制，避免超大种子占满磁盘</span>
+            </el-form-item>
             <el-form-item label="最大做种人数">
               <el-input-number
                 v-model="config.selection_rules.max_seeders"
@@ -113,7 +121,7 @@
           </div>
           <div class="tip-box">
             <el-icon><InfoFilled /></el-icon>
-            <span>建议：优先选 <strong>仅FREE</strong> + <strong>排除H&R</strong>，可最大化刷流安全性与收益比</span>
+            <span>建议：优先选 <strong>仅FREE</strong> + <strong>排除H&R</strong>；按需设置 <strong>最大体积</strong>，防止单种过大撑爆磁盘</span>
           </div>
         </div>
       </el-tab-pane>
@@ -200,6 +208,7 @@ const defaultConfig = {
     exclude_hr: true,
     promotion: 'FREE',
     min_size_gb: 0,
+    max_size_gb: 0,
     max_seeders: 100,
     max_pub_time: 60,
   },
@@ -395,5 +404,13 @@ onMounted(loadData)
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
 }
 </style>
