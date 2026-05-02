@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *.so
 .Python
+# 虚拟环境（勿提交）
+venv/
+.venv/
 env/
 build/
 develop-eggs/

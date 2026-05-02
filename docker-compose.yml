@@ -2,10 +2,10 @@ services:
   # ---- 后端 API ----
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ./backend
+      dockerfile: Dockerfile
       args:
-        # 默认不装 Playwright/Chromium，镜像小；需要浏览器自动化时再设为 1（见 Dockerfile.backend 注释）
+        # 默认不装 Playwright/Chromium，镜像小；需要浏览器自动化时再设为 1（见 backend/Dockerfile）
         WITH_PLAYWRIGHT_BROWSER: ${WITH_PLAYWRIGHT_BROWSER:-0}
     container_name: nastool-backend
     restart: unless-stopped
@@ -41,11 +41,11 @@ services:
       # 媒体目录挂载
       - ${DOWNLOAD_PATH:-/tmp/downloads}:/media/downloads
       - ${LIBRARY_PATH:-/tmp/library}:/media/library
-      # 站点自定义配置（可选）
+      # 可选：宿主机额外配置文件挂载到 /app/config（与包内 app/config 内置站点路径不同）
       - ./config:/app/config:ro
       # 将环境变量文件挂载入容器以便动态保存和热重载
       - ./.env:/app/.env:rw
-      # 后端源码请勿在此 bind mount：宿主机 ./app 若不存在会变成空目录，
+      # 后端源码请勿在此 bind mount：宿主机 ./backend/app 若不存在会变成空目录，
       # 覆盖镜像内 /app/app 导致 uvicorn 无法 import app.main。
       # 开发热更新请使用: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
     networks:

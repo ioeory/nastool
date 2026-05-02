@@ -55,8 +55,8 @@ jobs:
       - name: Build Backend image (local, for smoke test)
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile.backend
+          context: ./backend
+          file: ./backend/Dockerfile
           push: false
           load: true
           tags: nastool-backend:ci
@@ -72,8 +72,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile.backend
+          context: ./backend
+          file: ./backend/Dockerfile
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}

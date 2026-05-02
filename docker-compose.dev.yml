@@ -3,7 +3,7 @@
 # 使用方式: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
 # 特性:
-#   - 后端: bind mount app/ 源码 + uvicorn --reload 热更新（Python 代码改动立即生效）
+#   - 后端: bind mount backend/app 源码 + uvicorn --reload 热更新（Python 代码改动立即生效）
 #   - 前端: 运行 Vite dev server，支持 HMR 热模块替换（Vue 代码改动浏览器自动刷新）
 #   - 前端开发端口: 5173（访问 http://localhost:5173）
 
@@ -28,7 +28,7 @@ services:
       - DEBUG=true
     volumes:
       # bind mount 后端源码，配合 --reload 实现热更新
-      - ./app:/app/app:rw
+      - ./backend/app:/app/app:rw
 
   # 前端开发服务（替换 nginx 静态服务）
   frontend-dev:

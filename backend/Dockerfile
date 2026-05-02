@@ -4,7 +4,7 @@
 #
 # 可选组件 Playwright + Chromium 体积极大（常 400MB+），默认不安装。
 # 需要站点浏览器绕过（Cloudflare 等）时使用：
-#   docker build --build-arg WITH_PLAYWRIGHT_BROWSER=1 ... -f Dockerfile.backend .
+#   docker build --build-arg WITH_PLAYWRIGHT_BROWSER=1 -f Dockerfile ./backend
 # ============================================================
 
 # ---- 阶段1：安装依赖 ----
@@ -58,7 +58,6 @@ COPY --from=builder /root/.local /home/nastool/.local
 COPY --from=builder /root/.cache/ms-playwright /home/nastool/.cache/ms-playwright
 
 COPY --chown=nastool:nastool app/ ./app/
-COPY --chown=nastool:nastool config/ ./config/
 
 RUN mkdir -p /data/db /data/logs /data/config \
     && chown -R nastool:nastool /data /home/nastool/.local /home/nastool/.cache

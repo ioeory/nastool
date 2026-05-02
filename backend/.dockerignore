@@ -1,0 +1,12 @@
+# 后端镜像构建上下文（backend/）
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+.env.*
+*.log
+.git
+tests/

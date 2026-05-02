@@ -8,8 +8,8 @@ from typing import Optional, List, Dict
 from loguru import logger
 
 
-# sites.json 路径（优先读取用户自定义，其次使用内置）
-_BUILTIN_SITES_FILE = Path(__file__).parent.parent.parent / "config" / "sites.json"
+# 内置 sites.json：随 Python 包发布（Docker 仅需 COPY app/，无需单独 config 目录）
+_BUILTIN_SITES_FILE = Path(__file__).parent.parent / "config" / "sites.json"
 _USER_SITES_FILE = Path("/data/config/user_sites.json")
 
 
