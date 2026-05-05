@@ -115,3 +115,26 @@ def test_top_level_seeders_when_status_missing():
     }
     assert sp._parse_torrents([item])[0].seeders == 42
     assert sp._parse_torrents([item])[0].free == "FREE"
+
+
+def test_parse_api_discount_2x_free_underscore():
+    """ptool 使用 _2X_FREE 字串，与 2XFREE 不同。"""
+    sp = _make_spider()
+    item = {
+        "id": "618195",
+        "name": "x",
+        "size": 1000,
+        "status": {"discount": "_2X_FREE", "seeders": 1, "leechers": 0},
+    }
+    assert sp._parse_torrents([item])[0].free == "2XFREE"
+
+
+def test_parse_api_discount_2x_percent_50():
+    sp = _make_spider()
+    item = {
+        "id": "1",
+        "name": "x",
+        "size": 1000,
+        "status": {"discount": "_2X_PERCENT_50", "seeders": 1, "leechers": 0},
+    }
+    assert sp._parse_torrents([item])[0].free == "50%"

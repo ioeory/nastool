@@ -108,12 +108,15 @@ def _resolve_free_from_mteam_item(item: dict) -> str:
     blob = _promo_search_blob(item, status)
     compact = blob.replace(" ", "").replace("_", "")
 
+    # API 折扣字串见 sagan/ptool site/mtorrent/mtorrent.go downloadMultipliers（含下划线形式）
     if "2XFREE" in compact:
         return "2XFREE"
 
     enum_map = {
         "FREE": "FREE",
+        "_2X_FREE": "2XFREE",
         "PERCENT_50": "50%",
+        "_2X_PERCENT_50": "50%",
         "PERCENT_70": "30%",
     }
     if primary in enum_map:
@@ -152,37 +155,56 @@ class MTeamSpider(BaseSpider):
         """
         利用 M-Team Search API
         POST /api/torrent/search
+
+        与 ptool GetLatestTorrents 一致：同时请求 **normal + adult**，否则成人区种子不会出现在结果中，
+        刷流会表现为「站上有 FREE、API 却永远匹配不到」。
         """
-        # M-Team API 中 Page 是 1 基底的
         if page < 1:
             page = 1
-            
+
         url = urljoin(self.api_base, "/api/torrent/search")
-        
-        payload = {
-            "mode": "normal",
-            "categories": [],
-            "keyword": keyword,
-            "pageNumber": page,
-            "pageSize": 50
-        }
-        
-        logger.info(f"MTeamSpider [{self.site.name}] 搜索API: {url}")
-        
+        logger.info(
+            f"MTeamSpider [{self.site.name}] 搜索API: {url} "
+            f"(page={page}, modes=normal+adult)"
+        )
+
+        merged: dict[str, dict] = {}
         try:
             async with await self.get_client() as client:
-                resp = await client.post(url, json=payload)
-                if resp.status_code != 200:
-                    logger.warning(f"/{self.site.name}/ 搜索返回HTTP状态码: {resp.status_code}")
-                    return []
-                
-                data = resp.json()
-                if str(data.get("code")) != "0":
-                    logger.error(f"/{self.site.name}/ API请求返回错误: {data.get('message')}")
-                    return []
-                    
-                return self._parse_torrents(data.get("data", {}).get("data", []))
-                
+                for mode in ("normal", "adult"):
+                    payload = {
+                        "mode": mode,
+                        "categories": [],
+                        "keyword": keyword,
+                        "pageNumber": page,
+                        "pageSize": 50,
+                    }
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code != 200:
+                        logger.warning(
+                            f"/{self.site.name}/ 搜索 mode={mode} HTTP {resp.status_code}"
+                        )
+                        continue
+                    data = resp.json()
+                    if str(data.get("code")) != "0":
+                        logger.warning(
+                            f"/{self.site.name}/ 搜索 mode={mode} 业务错误: {data.get('message')}"
+                        )
+                        continue
+                    rows = data.get("data", {}).get("data", []) or []
+                    for row in rows:
+                        rid = row.get("id")
+                        if rid is None:
+                            continue
+                        merged[str(rid)] = row
+
+            items = list(merged.values())
+            logger.info(
+                f"MTeamSpider [{self.site.name}] 合并去重后 {len(items)} 条 "
+                f"(normal+adult 各最多 50)"
+            )
+            return self._parse_torrents(items)
+
         except httpx.RequestError as e:
             logger.error(f"/{self.site.name}/ 请求发生错误: {e}")
             return []
