@@ -90,3 +90,28 @@ def test_parse_percent_70():
         "status": {"discount": "PERCENT_70", "seeders": 0, "leechers": 0},
     }
     assert sp._parse_torrents([item])[0].free == "30%"
+
+
+def test_parse_discount_bool_true():
+    sp = _make_spider()
+    item = {
+        "id": "1",
+        "name": "x",
+        "size": 100,
+        "status": {"discount": True, "seeders": 3, "leechers": 0},
+    }
+    assert sp._parse_torrents([item])[0].free == "FREE"
+
+
+def test_top_level_seeders_when_status_missing():
+    sp = _make_spider()
+    item = {
+        "id": "1",
+        "name": "x",
+        "size": 100,
+        "seeders": 42,
+        "leechers": 1,
+        "discount": "FREE",
+    }
+    assert sp._parse_torrents([item])[0].seeders == 42
+    assert sp._parse_torrents([item])[0].free == "FREE"

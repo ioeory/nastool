@@ -44,6 +44,41 @@ def _flatten_promo_values(val: Any, out: List[str]) -> None:
             _flatten_promo_values(v, out)
 
 
+def _normalize_status(item: dict) -> dict:
+    """
+    统一取出 M-Team 条目的 status 字典。
+    部分响应里做种人数在顶层；极少数情况下字段形态异常时尽量降级为 dict。
+    """
+    raw = item.get("status")
+    if isinstance(raw, dict):
+        st = dict(raw)
+    else:
+        st = {}
+    # 顶层兜底（与 API 文档不一致时的兼容）
+    if "seeders" not in st and item.get("seeders") is not None:
+        st["seeders"] = item.get("seeders")
+    if "leechers" not in st and item.get("leechers") is not None:
+        st["leechers"] = item.get("leechers")
+    if "times" not in st and item.get("times") is not None:
+        st["times"] = item.get("times")
+    if "discount" not in st and item.get("discount") is not None:
+        st["discount"] = item.get("discount")
+    return st
+
+
+def _discount_token(raw: Any) -> str:
+    """将 API 中的 discount 原始值规范成可与枚举比对的大写字符串。"""
+    if raw is None:
+        return ""
+    if raw is True:
+        return "FREE"
+    if raw is False:
+        return ""
+    if isinstance(raw, (int, float)):
+        return str(int(raw)).strip().upper()
+    return str(raw).strip().upper()
+
+
 def _promo_search_blob(item: dict, status: dict) -> str:
     parts: List[str] = []
     for key in ("discount",):
@@ -66,9 +101,9 @@ def _resolve_free_from_mteam_item(item: dict) -> str:
     将 API 条目映射为刷流使用的 t.free：FREE / 2XFREE / 50% / 30% / "" 。
     优先识别 2XFREE（常出现在 labels），再识别 status.discount 枚举，最后对合并文本做子串匹配。
     """
-    status = item.get("status") if isinstance(item.get("status"), dict) else {}
-    sd = str(status.get("discount") or "").strip().upper()
-    td = str(item.get("discount") or "").strip().upper()
+    status = _normalize_status(item)
+    sd = _discount_token(status.get("discount"))
+    td = _discount_token(item.get("discount"))
     primary = sd or td
     blob = _promo_search_blob(item, status)
     compact = blob.replace(" ", "").replace("_", "")
@@ -175,7 +210,7 @@ class MTeamSpider(BaseSpider):
                 )
                 pubdate_val = str(raw_cd).strip() if raw_cd else None
 
-                st = item.get("status") if isinstance(item.get("status"), dict) else {}
+                st = _normalize_status(item)
 
                 t = TorrentItem(
                     site_id=self.site.id,
@@ -192,7 +227,13 @@ class MTeamSpider(BaseSpider):
                     free=_resolve_free_from_mteam_item(item),
                 )
 
-                if idx < 3:
+                if idx == 0:
+                    logger.info(
+                        f"MTeamSpider 首条样例: raw.discount={item.get('discount')!r} "
+                        f"status.discount={st.get('discount')!r} -> free={t.free!r} "
+                        f"size={t.size} seeders={t.seeders}"
+                    )
+                elif idx < 3:
                     logger.debug(
                         f"MTeamSpider parse[{idx}] title={t.title!r} "
                         f"status.discount={st.get('discount')!r} free={t.free!r} "

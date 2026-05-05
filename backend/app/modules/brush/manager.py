@@ -126,6 +126,13 @@ class BrushManager:
             logger.info(
                 f"[Brush] 过滤完成: 共 {len(torrents)} 个 → 匹配 {len(filtered)} 个"
             )
+            if not filtered and torrents:
+                t0 = torrents[0]
+                sz_gb = (t0.size or 0) / (1024**3)
+                logger.info(
+                    f"[Brush] 0 匹配排查样例(首条): free={t0.free!r} size={sz_gb:.2f}GB "
+                    f"seeders={t0.seeders} pubdate={t0.pubdate!r}"
+                )
             if not filtered:
                 return f"扫描 {len(site_ids)} 站，抓取 {len(torrents)} 种，匹配 0 种"
 
