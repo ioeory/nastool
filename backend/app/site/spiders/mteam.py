@@ -109,12 +109,21 @@ class MTeamSpider(BaseSpider):
                     free="" # Mteam 现在用折扣代替
                 )
                 
-                # M-Team 打折
-                discount = item.get("discount", "")
-                if "FREE" in discount:
+                # M-Team 打折标识可能在 discount 字段，也可能在 labels 列表，或 status 对象中
+                raw_discount = item.get("discount", "")
+                raw_labels = item.get("labels", [])
+                
+                # 将可能包含促销信息的字段组合成一个大写字符串来匹配，避免提取到 name 里的 free
+                promo_info = f"{raw_discount} {raw_labels}".upper()
+                
+                if "2XFREE" in promo_info:
+                    t.free = "2XFREE"
+                elif "FREE" in promo_info:
                     t.free = "FREE"
-                elif "50%" in discount:
+                elif "50%" in promo_info:
                     t.free = "50%"
+                elif "30%" in promo_info:
+                    t.free = "30%"
                     
                 torrents.append(t)
             except Exception as e:
