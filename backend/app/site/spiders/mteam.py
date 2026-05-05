@@ -1,8 +1,11 @@
 """
 M-Team API 专属爬虫
 M-Team 从 2024 年初大量转用自研的 API 进行前后端分离，故不再适用 NexusPHP 通用库
+
+Search 返回体结构见 github.com/sagan/ptool/site/mtorrent/types.go：
+  - 优惠在 status.discount，取值如 FREE / PERCENT_50 / PERCENT_70 / NORMAL
 """
-from typing import List, Optional
+from typing import Any, List, Optional
 import httpx
 from loguru import logger
 from urllib.parse import urljoin
@@ -10,6 +13,84 @@ from urllib.parse import urljoin
 from app.site.spiders.base import BaseSpider
 from app.schemas import TorrentItem
 from app.utils.url import extract_domain
+
+
+def _int_safe(value: Any) -> int:
+    try:
+        if value is None or value == "":
+            return 0
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _flatten_promo_values(val: Any, out: List[str]) -> None:
+    """把 labels / promotionRule 等嵌套结构压成字符串片段，供子串匹配。"""
+    if val is None:
+        return
+    if isinstance(val, bool):
+        return
+    if isinstance(val, (str, int, float)):
+        s = str(val).strip()
+        if s:
+            out.append(s)
+        return
+    if isinstance(val, dict):
+        for v in val.values():
+            _flatten_promo_values(v, out)
+        return
+    if isinstance(val, (list, tuple)):
+        for v in val:
+            _flatten_promo_values(v, out)
+
+
+def _promo_search_blob(item: dict, status: dict) -> str:
+    parts: List[str] = []
+    for key in ("discount",):
+        v = status.get(key)
+        if v is not None and str(v).strip():
+            parts.append(str(v).strip())
+        v2 = item.get(key)
+        if v2 is not None and str(v2).strip() and str(v2).strip() != str(v).strip():
+            parts.append(str(v2).strip())
+    for key in ("promotionRule", "promotion_rule"):
+        raw = status.get(key) or item.get(key)
+        _flatten_promo_values(raw, parts)
+    for key in ("labels", "labelsNew", "labels_new"):
+        _flatten_promo_values(item.get(key), parts)
+    return " ".join(parts).upper()
+
+
+def _resolve_free_from_mteam_item(item: dict) -> str:
+    """
+    将 API 条目映射为刷流使用的 t.free：FREE / 2XFREE / 50% / 30% / "" 。
+    优先识别 2XFREE（常出现在 labels），再识别 status.discount 枚举，最后对合并文本做子串匹配。
+    """
+    status = item.get("status") if isinstance(item.get("status"), dict) else {}
+    sd = str(status.get("discount") or "").strip().upper()
+    td = str(item.get("discount") or "").strip().upper()
+    primary = sd or td
+    blob = _promo_search_blob(item, status)
+    compact = blob.replace(" ", "").replace("_", "")
+
+    if "2XFREE" in compact:
+        return "2XFREE"
+
+    enum_map = {
+        "FREE": "FREE",
+        "PERCENT_50": "50%",
+        "PERCENT_70": "30%",
+    }
+    if primary in enum_map:
+        return enum_map[primary]
+
+    if "PERCENT_50" in blob or "50%" in blob:
+        return "50%"
+    if "PERCENT_70" in blob or "30%" in blob:
+        return "30%"
+    if "FREE" in blob:
+        return "FREE"
+    return ""
 
 
 class MTeamSpider(BaseSpider):
@@ -61,7 +142,7 @@ class MTeamSpider(BaseSpider):
                     return []
                 
                 data = resp.json()
-                if data.get("code") != "0":
+                if str(data.get("code")) != "0":
                     logger.error(f"/{self.site.name}/ API请求返回错误: {data.get('message')}")
                     return []
                     
@@ -77,8 +158,8 @@ class MTeamSpider(BaseSpider):
     def _parse_torrents(self, items: list) -> List[TorrentItem]:
         """把 M-Team JSON 转换成 TorrentItem"""
         torrents: List[TorrentItem] = []
-        
-        for item in items:
+
+        for idx, item in enumerate(items):
             try:
                 torrent_id = item.get("id")
                 # 下载链接通常可以直接构造: /api/torrent/genDlToken 根据 ID 拿 token，但这不适合批量爬取提供下载链接。
@@ -94,6 +175,8 @@ class MTeamSpider(BaseSpider):
                 )
                 pubdate_val = str(raw_cd).strip() if raw_cd else None
 
+                st = item.get("status") if isinstance(item.get("status"), dict) else {}
+
                 t = TorrentItem(
                     site_id=self.site.id,
                     site_name=self.site.name,
@@ -101,30 +184,21 @@ class MTeamSpider(BaseSpider):
                     description=item.get("smallDescr", ""),
                     enclosure=download_url,
                     detail_url=detail_url,
-                    seeders=int(item.get("status", {}).get("seeders", 0)),
-                    leechers=int(item.get("status", {}).get("leechers", 0)),
-                    downloads=int(item.get("status", {}).get("times", 0)),
-                    size=int(item.get("size", 0)),
+                    seeders=_int_safe(st.get("seeders")),
+                    leechers=_int_safe(st.get("leechers")),
+                    downloads=_int_safe(st.get("times")),
+                    size=_int_safe(item.get("size")),
                     pubdate=pubdate_val,
-                    free="" # Mteam 现在用折扣代替
+                    free=_resolve_free_from_mteam_item(item),
                 )
-                
-                # M-Team 打折标识可能在 discount 字段，也可能在 labels 列表，或 status 对象中
-                raw_discount = item.get("discount", "")
-                raw_labels = item.get("labels", [])
-                
-                # 将可能包含促销信息的字段组合成一个大写字符串来匹配，避免提取到 name 里的 free
-                promo_info = f"{raw_discount} {raw_labels}".upper()
-                
-                if "2XFREE" in promo_info:
-                    t.free = "2XFREE"
-                elif "FREE" in promo_info:
-                    t.free = "FREE"
-                elif "50%" in promo_info:
-                    t.free = "50%"
-                elif "30%" in promo_info:
-                    t.free = "30%"
-                    
+
+                if idx < 3:
+                    logger.debug(
+                        f"MTeamSpider parse[{idx}] title={t.title!r} "
+                        f"status.discount={st.get('discount')!r} free={t.free!r} "
+                        f"seeders={t.seeders} size={t.size}"
+                    )
+
                 torrents.append(t)
             except Exception as e:
                 logger.debug(f"MTeamSpider parse error: {e}")
@@ -158,12 +232,12 @@ class MTeamSpider(BaseSpider):
                         return None
                     
                 token_data = token_resp.json()
-                if token_data.get("code") != "0":
+                if str(token_data.get("code")) != "0":
                     logger.error(f"/{self.site.name}/ genDlToken 业务报错: {token_data}")
                     
                     # 再试一次 json= （防止上面返回的其实是 HTTP 200 但业务报错了，比如 form 不支持）
                     token_resp2 = await client.post(token_url, json={"id": str(torrent_id)})
-                    if token_resp2.status_code == 200 and token_resp2.json().get("code") == "0":
+                    if token_resp2.status_code == 200 and str(token_resp2.json().get("code")) == "0":
                         token_data = token_resp2.json()
                     else:
                         return None
