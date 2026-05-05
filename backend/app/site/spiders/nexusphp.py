@@ -140,20 +140,42 @@ class NexusPHPSpider(BaseSpider):
                 # 遍历 title_td 中的所有图片和 span 来获取图标信息
                 icons = title_td.find_all(["img", "span"], class_=True)
                 for icon in icons:
-                    cls = " ".join(icon.get("class", []))
+                    cls = " ".join(icon.get("class", [])).lower()
+                    title_attr = icon.get("title", "").lower()
+                    alt_attr = icon.get("alt", "").lower()
+                    
+                    text_content = ""
+                    if icon.name == "span":
+                        text = icon.get_text(strip=True).lower()
+                        # 判断是否为促销标签的特征，避免将搜索高亮的标题误判为促销
+                        is_promo_tag = False
+                        if "促" in title_attr or "promotion" in title_attr:
+                            is_promo_tag = True
+                        elif "tag" in cls or "label" in cls or "badge" in cls or "pro" in cls:
+                            is_promo_tag = True
+                        elif text in ["free", "2xfree", "50%", "30%", "2x"]:
+                            # 排除常见的搜索高亮 class
+                            if "high" not in cls and "match" not in cls and "key" not in cls:
+                                is_promo_tag = True
+                                
+                        if is_promo_tag and len(text) < 20:
+                            text_content = text
+
+                    combined_info = f"{cls} {title_attr} {alt_attr} {text_content}"
+                    
                     # 识别 H&R
-                    if "hitrun" in cls.lower() or "h&r" in icon.get("title", "").lower():
+                    if "hitrun" in combined_info or "h&r" in combined_info:
                         is_hr = True
                     # 识别优惠
-                    if "twoupfree" in cls.lower() or "2xfree" in cls.lower() or "free2up" in cls.lower():
+                    if "twoupfree" in combined_info or "2xfree" in combined_info or "free2up" in combined_info:
                         free_text = "2XFREE"
-                    elif "free" in cls.lower():
+                    elif "free" in combined_info:
                         free_text = "FREE"
-                    elif "twoup" in cls.lower() or "2x" in cls.lower():
+                    elif "twoup" in combined_info or "2x" in combined_info:
                         free_text = "2X"
-                    elif "halfdown" in cls.lower() or "50%" in cls.lower():
+                    elif "halfdown" in combined_info or "50%" in combined_info:
                         free_text = "50%"
-                    elif "thirtypercent" in cls.lower() or "30%" in cls.lower():
+                    elif "thirtypercent" in combined_info or "30%" in combined_info:
                         free_text = "30%"
 
                 # 文件大小，一般是含有 MB, GB, TB 的文本
