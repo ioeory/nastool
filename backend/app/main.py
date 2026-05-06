@@ -34,6 +34,8 @@ async def lifespan(app: FastAPI):
     await _create_superuser()
 
     logger.info(f"✅ {settings.APP_NAME} 启动完成，API 地址: http://0.0.0.0:{settings.API_PORT}")
+    # 部署校验：若日志中无此行，说明运行的不是当前代码构建的后端镜像
+    logger.info("后端特性标记: brush_rss_merge=v1 task_config_patch_merge=v1")
 
     # 启动后台调度器
     from app.scheduler import setup_scheduler, shutdown_scheduler, sync_scheduler

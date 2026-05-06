@@ -1,4 +1,5 @@
-from typing import Optional
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,21 @@ from app.schemas import Response, AutomationCreate, AutomationUpdate
 from app.modules.automation.manager import AutomationManager
 
 router = APIRouter(prefix="/automation", tags=["自动化任务"])
+
+
+def _merge_task_config(existing: Optional[Dict[str, Any]], incoming: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    PATCH 合并 task_config，避免前端某次只提交部分字段时整包覆盖，把 feed_source/rss_url 等刷流关键键弄丢。
+    """
+    if not incoming:
+        return dict(existing or {})
+    if not existing:
+        return dict(incoming)
+    merged: Dict[str, Any] = {**existing, **incoming}
+    for key in ("selection_rules", "delete_rules"):
+        if key in incoming and isinstance(incoming[key], dict):
+            merged[key] = {**(existing.get(key) or {}), **incoming[key]}
+    return merged
 
 @router.get("/", response_model=Response, summary="获取所有自动化任务")
 async def list_automations(
@@ -127,17 +143,28 @@ async def update_automation(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    result = await db.execute(select(Automation).where(Automation.id == automation_id))
+    auto = result.scalar_one_or_none()
+    if not auto:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
     update_data = data.model_dump(exclude_unset=True)
+    if "task_config" in update_data and update_data["task_config"] is not None:
+        update_data["task_config"] = _merge_task_config(
+            auto.task_config if isinstance(auto.task_config, dict) else {},
+            update_data["task_config"],
+        )
+
     if update_data:
         await db.execute(
             update(Automation).where(Automation.id == automation_id).values(**update_data)
         )
         await db.commit()
-    
+
     # 同步到调度器
     manager = AutomationManager(db)
     await manager.sync_all_to_scheduler()
-    
+
     return Response(message="更新成功并已同步到调度器")
 
 @router.delete("/{automation_id}", response_model=Response, summary="删除自动化任务")

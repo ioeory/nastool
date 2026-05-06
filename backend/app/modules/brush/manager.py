@@ -70,6 +70,14 @@ class BrushManager:
                 return
 
             config = auto.task_config
+            if auto.type == "brush":
+                logger.info(
+                    f"[Brush] 任务「{auto.name}」task_config 摘要: "
+                    f"feed_source={config.get('feed_source')!r} "
+                    f"rss_url={'yes' if (config.get('rss_url') or '').strip() else 'no'} "
+                    f"sites={config.get('sites')}"
+                )
+
             site_ids: List[int] = config.get("sites", [])
             downloader_id: Optional[int] = config.get("downloader_id")
 
