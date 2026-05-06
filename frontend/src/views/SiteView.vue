@@ -88,11 +88,16 @@
             v-model="form.cookie"
             type="textarea"
             :rows="3"
-            placeholder="粘贴站点 Cookie（与 API Key 二选一）"
+            :placeholder="editingId ? '留空表示保留当前 Cookie，不修改' : '粘贴站点 Cookie（与 API Key 二选一）'"
           />
+          <span v-if="editingId" class="form-tip">出于安全，编辑时不显示已保存的 Cookie；留空提交不会清空。</span>
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="form.apikey" placeholder="M-Team 等支持 API Key 的站点" />
+          <el-input
+            v-model="form.apikey"
+            :placeholder="editingId ? '留空表示保留当前 API Key' : 'M-Team 等支持 API Key 的站点'"
+          />
+          <span v-if="editingId" class="form-tip">留空提交不会清空已保存的 Key。</span>
         </el-form-item>
         <el-form-item label="User-Agent">
           <el-input v-model="form.ua" placeholder="留空使用默认" />
@@ -176,7 +181,10 @@ async function submitForm() {
   submitting.value = true
   try {
     if (editingId.value) {
-      await siteApi.update(editingId.value, form)
+      const payload = { ...form }
+      if (!String(payload.cookie || '').trim()) delete payload.cookie
+      if (!String(payload.apikey || '').trim()) delete payload.apikey
+      await siteApi.update(editingId.value, payload)
       ElMessage.success('更新成功')
     } else {
       await siteApi.add(form)

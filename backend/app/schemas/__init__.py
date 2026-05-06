@@ -86,7 +86,8 @@ class SiteCreate(BaseModel):
 
 
 class SiteUpdate(BaseModel):
-    """更新站点信息"""
+    """更新站点信息（敏感字段传空字符串表示不修改，由 API 层剔除）"""
+    url: Optional[str] = None
     cookie: Optional[str] = None
     apikey: Optional[str] = None
     token: Optional[str] = None

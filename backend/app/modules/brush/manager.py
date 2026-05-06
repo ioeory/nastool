@@ -100,22 +100,70 @@ class BrushManager:
                 f"({downloader.client_type} @ {downloader.host})"
             )
 
-            # 3. 抓取各站点 RSS 种子
+            # 3. 抓取种子（Search API 或 RSS）
             torrents: List[TorrentItem] = []
-            indexer = IndexerModule(db)
-            for sid in site_ids:
-                site_res = await db.execute(select(Site).where(Site.id == sid))
-                site = site_res.scalar_one_or_none()
-                if not site:
-                    continue
+            feed_source = (config.get("feed_source") or "search").strip().lower()
+            rss_url_override = (config.get("rss_url") or "").strip()
 
-                logger.info(f"[Brush] 正在抓取站点: {site.name}")
-                try:
-                    site_torrents = await indexer.search_site(site, keyword="")
-                    logger.info(f"[Brush] {site.name} 抓取到 {len(site_torrents)} 个种子")
-                    torrents.extend(site_torrents)
-                except Exception as e:
-                    logger.error(f"[Brush] 抓取站点 {site.name} 失败: {e}")
+            if feed_source == "rss":
+                from app.modules.brush.rss_feed import fetch_rss_torrent_items_for_brush
+
+                if rss_url_override:
+                    sid0 = site_ids[0]
+                    site_res = await db.execute(select(Site).where(Site.id == sid0))
+                    site0 = site_res.scalar_one_or_none()
+                    if site0:
+                        logger.info(
+                            f"[Brush] RSS 模式使用任务内订阅地址（站点上下文: {site0.name}）"
+                        )
+                        try:
+                            batch = await fetch_rss_torrent_items_for_brush(
+                                site0, rss_url_override
+                            )
+                            torrents.extend(batch)
+                        except Exception as e:
+                            logger.error(f"[Brush] RSS 抓取失败: {e}")
+                    else:
+                        logger.warning("[Brush] RSS 覆盖地址已配置但首个站点不存在")
+                else:
+                    for sid in site_ids:
+                        site_res = await db.execute(select(Site).where(Site.id == sid))
+                        site = site_res.scalar_one_or_none()
+                        if not site:
+                            continue
+                        if not (site.rss or "").strip():
+                            logger.warning(
+                                f"[Brush] RSS 模式：站点 {site.name} 未配置 RSS 地址，跳过"
+                            )
+                            continue
+                        logger.info(f"[Brush] 正在拉取 RSS: {site.name}")
+                        try:
+                            batch = await fetch_rss_torrent_items_for_brush(
+                                site, site.rss.strip()
+                            )
+                            logger.info(
+                                f"[Brush] {site.name} RSS 解析 {len(batch)} 个条目"
+                            )
+                            torrents.extend(batch)
+                        except Exception as e:
+                            logger.error(f"[Brush] RSS 抓取站点 {site.name} 失败: {e}")
+            else:
+                indexer = IndexerModule(db)
+                for sid in site_ids:
+                    site_res = await db.execute(select(Site).where(Site.id == sid))
+                    site = site_res.scalar_one_or_none()
+                    if not site:
+                        continue
+
+                    logger.info(f"[Brush] 正在抓取站点: {site.name}")
+                    try:
+                        site_torrents = await indexer.search_site(site, keyword="")
+                        logger.info(
+                            f"[Brush] {site.name} 抓取到 {len(site_torrents)} 个种子"
+                        )
+                        torrents.extend(site_torrents)
+                    except Exception as e:
+                        logger.error(f"[Brush] 抓取站点 {site.name} 失败: {e}")
 
             if not torrents:
                 logger.info(f"[Brush] 任务 {auto.name} 未发现新种子")

@@ -35,6 +35,36 @@
             </div>
           </div>
 
+          <!-- 种子来源：搜索 API / RSS -->
+          <el-form-item label="种子来源" style="margin-top: 12px">
+            <el-radio-group v-model="config.feed_source">
+              <el-radio-button value="search">站点搜索 API</el-radio-button>
+              <el-radio-button value="rss">RSS 订阅</el-radio-button>
+            </el-radio-group>
+            <div class="field-hint" style="margin-top: 8px">
+              <template v-if="config.feed_source === 'search'">
+                与站点管理中的「RSS 地址」无关，按站点类型调用搜索接口（如 M-Team 为 API）。
+              </template>
+              <template v-else>
+                从 RSS/Atom 拉取条目；促销信息通常无法解析，选种规则若要求「仅 FREE」可能全部不匹配。
+                填写下方地址则<strong>优先</strong>使用该 URL；留空则使用各站点在「站点管理」里保存的 RSS。
+              </template>
+            </div>
+          </el-form-item>
+
+          <el-form-item
+            v-if="config.feed_source === 'rss'"
+            label="RSS 地址（可选）"
+          >
+            <el-input
+              v-model="config.rss_url"
+              clearable
+              type="textarea"
+              :rows="2"
+              placeholder="留空则使用所选各站点自身配置的 RSS；填写则仅用该地址（取第一个所选站点作为 Cookie/UA 上下文）"
+            />
+          </el-form-item>
+
           <!-- 刷流站点 -->
           <el-form-item label="刷流站点" required style="margin-top: 20px">
             <el-select
@@ -207,6 +237,8 @@ const downloaders = ref([])
 const defaultConfig = {
   sites: [],
   downloader_id: null,
+  feed_source: 'search',
+  rss_url: '',
   max_tasks: 3,
   keep_volume: 100,
   category: 'Brushing',

@@ -14,6 +14,7 @@ from app.db.models.user import User
 from app.schemas import Response, SiteCreate, SiteUpdate, SiteOut, SiteTestResult, CheckinOut
 from app.site.registry import SiteRegistry
 from app.site.manager import SiteManager
+from app.utils.url import extract_domain, normalize_url
 
 router = APIRouter(prefix="/site", tags=["站点管理"])
 registry = SiteRegistry()
@@ -84,6 +85,32 @@ async def update_site(
         raise HTTPException(status_code=404, detail="站点不存在")
 
     update_data = site_in.model_dump(exclude_unset=True)
+
+    # 敏感字段：仅空白则不更新，避免 PATCH 误清空
+    for secret_key in ("cookie", "apikey", "token"):
+        if secret_key in update_data:
+            val = update_data[secret_key]
+            if val is None or (isinstance(val, str) and not val.strip()):
+                del update_data[secret_key]
+
+    # URL 变更时同步 domain（与添加站点时 extract_domain 一致）
+    if "url" in update_data and update_data["url"]:
+        norm = normalize_url(update_data["url"])
+        new_domain = extract_domain(norm)
+        if not new_domain:
+            raise HTTPException(status_code=400, detail="无效的站点 URL")
+        if new_domain != site.domain:
+            clash = await db.execute(
+                select(Site.id).where(Site.domain == new_domain, Site.id != site_id)
+            )
+            if clash.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"域名 {new_domain} 已被其他站点占用",
+                )
+        update_data["url"] = norm
+        update_data["domain"] = new_domain
+
     if update_data:
         await db.execute(
             update(Site).where(Site.id == site_id).values(**update_data)

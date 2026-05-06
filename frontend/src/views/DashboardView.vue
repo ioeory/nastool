@@ -38,7 +38,7 @@
     </div>
 
     <!-- 中下部内容 -->
-    <div class="section-grid">
+    <div class="section-grid section-grid-triple">
       <!-- 站点状态 -->
       <div class="page-card">
         <div class="page-header">
@@ -53,6 +53,32 @@
             <div class="site-dot" :class="site.is_active ? 'active' : 'inactive'" />
             <span class="site-name">{{ site.name }}</span>
             <span class="checkin-time">{{ site.last_checkin ? site.last_checkin.split(' ')[0] : '从未签到' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 刷流任务 -->
+      <div class="page-card">
+        <div class="page-header">
+          <h2>刷流任务</h2>
+          <el-button link type="primary" @click="$router.push('/workflow')">工作流</el-button>
+        </div>
+        <div v-if="brushTasks.length === 0" class="empty-tip">
+          <el-empty description="暂无站点刷流任务" :image-size="60" />
+        </div>
+        <div v-else class="brush-task-list">
+          <div class="brush-task-item" v-for="b in brushTasks.slice(0, 8)" :key="b.id">
+            <el-icon class="brush-icon"><Connection /></el-icon>
+            <div class="brush-main">
+              <span class="brush-name">{{ b.name }}</span>
+              <el-tag :type="b.is_active ? 'success' : 'info'" size="small">
+                {{ b.is_active ? '启用' : '停用' }}
+              </el-tag>
+            </div>
+            <div class="brush-meta">
+              <span v-if="b.last_run" title="上次运行">上次 {{ formatShortTime(b.last_run) }}</span>
+              <span v-else class="muted">未运行</span>
+            </div>
           </div>
         </div>
       </div>
@@ -86,12 +112,13 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   Monitor, Bell, List,
-  Download, Upload, Timer, Clock
+  Download, Upload, Timer, Clock, Connection
 } from '@element-plus/icons-vue'
 import { siteApi, systemApi, downloaderApi, automationApi } from '@/api'
 
 const loading = ref(false)
 const sites = ref([])
+const brushTasks = ref([])
 const recentHistory = ref([])
 const speed = ref({ dl: 0, ul: 0 })
 const sysInfo = ref(null)
@@ -145,7 +172,14 @@ async function fetchData() {
     sites.value = res.data || []
   } catch {}
 
-  // 3. 最近历史
+  // 3. 自动化任务（刷流）
+  try {
+    const autoRes = await automationApi.list()
+    const all = autoRes.data || []
+    brushTasks.value = all.filter((a) => a.type === 'brush')
+  } catch {}
+
+  // 4. 最近历史
   try {
     const res = await automationApi.history()
     recentHistory.value = res.data || []
@@ -195,6 +229,19 @@ function activityStatusText(status) {
 function formatActivityTime(h) {
   const t = h.end_time || h.start_time
   return formatTime(t)
+}
+
+/** ISO 时间字符串 -> 简短展示 */
+function formatShortTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16)
+  const now = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  if (d.toDateString() === now.toDateString()) {
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 </script>
 
@@ -287,6 +334,11 @@ function formatActivityTime(h) {
   @media (max-width: 900px) { grid-template-columns: 1fr; }
 }
 
+.section-grid-triple {
+  grid-template-columns: repeat(3, 1fr);
+  @media (max-width: 1200px) { grid-template-columns: 1fr; }
+}
+
 .page-header {
   display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
   h2 { font-size: 18px; color: #fff; margin: 0; }
@@ -315,5 +367,45 @@ function formatActivityTime(h) {
 .history-item {
   flex-direction: column; align-items: flex-start; gap: 4px;
   .h-main { display: flex; width: 100%; justify-content: space-between; align-items: center; }
+}
+
+.brush-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brush-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 10px;
+  flex-wrap: wrap;
+  .brush-icon { color: #4ade80; margin-top: 2px; flex-shrink: 0; }
+  .brush-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .brush-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .brush-meta {
+    width: 100%;
+    padding-left: 24px;
+    font-size: 12px;
+    color: var(--text-muted);
+    .muted { opacity: 0.6; }
+  }
 }
 </style>
