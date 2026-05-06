@@ -1,6 +1,7 @@
 name: Build and Publish Docker Images
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [ "main", "master" ]
     # Ignore changes to documentation and config files that don't affect the build
@@ -71,6 +72,14 @@ jobs:
         run: |
           docker run --rm nastool-backend:ci \
             python -c "import app.main; print('app.main import OK')"
+          # 防止 Buildx 缓存异常导致 app 源码层未更新却仍推送：校验刷流 RSS 逻辑必须在镜像内
+          docker run --rm nastool-backend:ci python -c "
+          from pathlib import Path
+          t = Path('/app/app/modules/brush/manager.py').read_text(encoding='utf-8')
+          assert 'use_rss' in t, 'missing use_rss'
+          assert '种子来源' in t, 'missing 种子来源 log'
+          print('BrushManager RSS/build sanity OK')
+          "
 
       - name: Push Backend Docker image
         if: github.event_name != 'pull_request'
