@@ -190,7 +190,9 @@ class BrushManager:
         max_pub_time: int = int(rules.get("max_pub_time", 0) or 0)  # 分钟，仅接受「发布时间」距今不超过此值的种子；0=不限
 
         matched = []
-        for t in torrents:
+        for i, t in enumerate(torrents):
+            logger.info(f"[Brush-Filter] {i+1}. 标题={t.title}, Free={t.free}, Size={(t.size or 0)/(1024**3):.2f}GB, Seeders={t.seeders}, Pubdate={t.pubdate}")
+
             # --- 优惠过滤 ---
             if promotion:
                 # 指定了具体优惠类型
