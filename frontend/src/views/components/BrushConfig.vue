@@ -38,8 +38,9 @@
           <!-- 种子来源：搜索 API / RSS -->
           <el-form-item label="种子来源" style="margin-top: 12px">
             <el-radio-group v-model="config.feed_source">
-              <el-radio-button value="search">站点搜索 API</el-radio-button>
-              <el-radio-button value="rss">RSS 订阅</el-radio-button>
+              <!-- Element Plus 使用 label 作为选项值；勿用 value，部分环境下无法正确写入 v-model -->
+              <el-radio-button label="search">站点搜索 API</el-radio-button>
+              <el-radio-button label="rss">RSS 订阅</el-radio-button>
             </el-radio-group>
             <div class="field-hint" style="margin-top: 8px">
               <template v-if="config.feed_source === 'search'">

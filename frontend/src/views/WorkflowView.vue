@@ -228,6 +228,14 @@ async function submitForm() {
       payload.trigger_config = { cron: payload.trigger_config.cron }
     }
 
+    // 刷流：确保 task_config.feed_source 写入后端（避免单选未绑定导致永远走搜索 API）
+    if (payload.type === 'brush' && payload.task_config) {
+      const tc = payload.task_config
+      if (tc.feed_source !== 'rss' && tc.feed_source !== 'search') {
+        tc.feed_source = (tc.rss_url || '').trim() ? 'rss' : 'search'
+      }
+    }
+
     if (editingId.value) {
       await automationApi.update(editingId.value, payload)
       ElMessage.success('更新成功')
