@@ -273,7 +273,16 @@ watch(() => props.modelValue, (newVal) => {
     selection_rules: { ...defaultConfig.selection_rules, ...(newVal?.selection_rules || {}) },
     delete_rules: { ...defaultConfig.delete_rules, ...(newVal?.delete_rules || {}) },
   }
-  
+  // 仅有 rss_url、历史任务未存 feed_source 时，默认应为 RSS，避免合并 defaultConfig 后退回「搜索 API」导致保存错误
+  const hasExplicitFeedSource =
+    newVal &&
+    Object.prototype.hasOwnProperty.call(newVal, 'feed_source') &&
+    newVal.feed_source != null &&
+    String(newVal.feed_source).trim() !== ''
+  if (!hasExplicitFeedSource && String(merged.rss_url || '').trim()) {
+    merged.feed_source = 'rss'
+  }
+
   // 只有当合并后的结果与当前 local config 不一致时才更新
   // 使用 JSON 字符串对比是深度对比最简单有效的方式
   if (JSON.stringify(merged) !== JSON.stringify(config.value)) {
