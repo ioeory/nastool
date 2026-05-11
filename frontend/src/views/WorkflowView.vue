@@ -232,7 +232,7 @@ async function submitForm() {
     if (payload.type === 'brush' && payload.task_config) {
       const tc = payload.task_config
       if (tc.feed_source !== 'rss' && tc.feed_source !== 'search') {
-        tc.feed_source = (tc.rss_url || '').trim() ? 'rss' : 'search'
+        tc.feed_source = ((tc.rss_url || '').trim() || tc.use_rss) ? 'rss' : 'search'
       }
     }
 

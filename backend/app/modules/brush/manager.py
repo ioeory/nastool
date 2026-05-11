@@ -110,12 +110,15 @@ class BrushManager:
 
             # 3. 抓取种子（Search API 或 RSS）
             torrents: List[TorrentItem] = []
-            rss_url_override = (config.get("rss_url") or "").strip()
+            rss_url_override = (
+                (config.get("rss_url") or config.get("rss") or config.get("feed_url") or "")
+            ).strip()
             feed_source = (config.get("feed_source") or "search").strip().lower()
-            # 配置了 rss_url 即视为 RSS 模式（兼容早期仅保存 rss_url、未写入 feed_source 的任务）
-            use_rss = feed_source == "rss" or bool(rss_url_override)
+            legacy_use_rss = bool(config.get("use_rss"))
+            # 向后兼容：历史任务可能只保存 use_rss=true，或使用旧的 rss/feed_url 键
+            use_rss = feed_source == "rss" or bool(rss_url_override) or legacy_use_rss
             logger.info(
-                f"[Brush] 种子来源: feed_source={feed_source!r} rss_url="
+                f"[Brush] 种子来源: feed_source={feed_source!r} legacy_use_rss={legacy_use_rss!r} rss_url="
                 f"{'yes' if rss_url_override else 'no'} → "
                 f"{'RSS' if use_rss else 'search API'}"
             )

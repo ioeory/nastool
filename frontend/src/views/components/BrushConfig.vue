@@ -280,8 +280,10 @@ watch(() => props.modelValue, (newVal) => {
     Object.prototype.hasOwnProperty.call(newVal, 'feed_source') &&
     newVal.feed_source != null &&
     String(newVal.feed_source).trim() !== ''
-  if (!hasExplicitFeedSource && String(merged.rss_url || '').trim()) {
-    merged.feed_source = 'rss'
+  if (!hasExplicitFeedSource) {
+    const hasRssUrl = String(merged.rss_url || '').trim() !== ''
+    const legacyUseRss = Boolean(newVal?.use_rss)
+    merged.feed_source = (hasRssUrl || legacyUseRss) ? 'rss' : 'search'
   }
 
   // 只有当合并后的结果与当前 local config 不一致时才更新
