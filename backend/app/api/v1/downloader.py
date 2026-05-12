@@ -30,7 +30,8 @@ async def list_downloaders(
             "client_type": d.client_type,
             "host": d.host,
             "username": d.username,
-            "password": d.password,
+            "password": "",
+            "password_set": bool(d.password),
             "category": d.category,
             "save_path": d.save_path,
             "is_active": d.is_active,
@@ -87,6 +88,13 @@ async def update_downloader(d_id: int, data: dict, db: AsyncSession = Depends(ge
         exist_stmt = select(Downloader).where(Downloader.name == new_name)
         if await db.scalar(exist_stmt):
             return Response(code=1, message="下载器名称已存在")
+
+    # 安全处理：编辑时空密码表示保留原有密码，不执行清空。
+    if "password" in data:
+        pwd = data.get("password")
+        if pwd is None or (isinstance(pwd, str) and not pwd.strip()):
+            data = dict(data)
+            del data["password"]
 
     for k, v in data.items():
         if hasattr(d, k) and k != "id":

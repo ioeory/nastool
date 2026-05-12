@@ -1,9 +1,8 @@
 import asyncio
-import time
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import AsyncSessionLocal
@@ -35,11 +34,18 @@ class AutomationManager:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(Automation).where(Automation.is_active == True))
             automations = result.scalars().all()
+            loaded = 0
+            skipped = 0
             
             for auto in automations:
-                await self._add_to_scheduler(auto)
+                try:
+                    await self._add_to_scheduler(auto)
+                    loaded += 1
+                except ValueError as e:
+                    skipped += 1
+                    logger.error(f"[Automation] 跳过任务 {auto.name} (ID: {auto.id}): {e}")
         
-        logger.info(f"[Automation] 同步完成，共加载 {len(automations)} 个任务")
+        logger.info(f"[Automation] 同步完成，共加载 {loaded} 个任务，跳过 {skipped} 个")
 
     async def _add_to_scheduler(self, auto: Automation):
         """将单个任务添加到调度器"""
@@ -51,13 +57,18 @@ class AutomationManager:
         trigger_args = {}
         
         if auto.trigger == "interval":
-            # 仅提取 interval 支持的参数
-            if "minutes" in full_config:
-                trigger_args["minutes"] = full_config["minutes"]
-            if "hours" in full_config:
-                trigger_args["hours"] = full_config["hours"]
-            if "seconds" in full_config:
-                trigger_args["seconds"] = full_config["seconds"]
+            # 仅提取并校验 interval 支持的参数
+            minutes = self._to_positive_int(full_config.get("minutes"))
+            hours = self._to_positive_int(full_config.get("hours"))
+            seconds = self._to_positive_int(full_config.get("seconds"))
+            if minutes is not None:
+                trigger_args["minutes"] = minutes
+            if hours is not None:
+                trigger_args["hours"] = hours
+            if seconds is not None:
+                trigger_args["seconds"] = seconds
+            if not trigger_args:
+                raise ValueError("interval 触发器至少需要一个正整数参数(minutes/hours/seconds)")
                 
             scheduler.add_job(
                 self.execute_workflow,
@@ -68,13 +79,6 @@ class AutomationManager:
                 **trigger_args
             )
         elif auto.trigger == "cron":
-            # 仅提取 cron 支持的参数
-            if "cron" in full_config:
-                # 解析 cron 字符串格式 (APScheduler 直接支持 cron 表达式作为参数名是不存在的，通常是分开的字段)
-                # 但如果存的是 {"cron": "0 0 * * *"}，我们需要处理
-                pass
-            
-            # 简化版：如果 trigger_config 里有 cron，我们假设它是 cron 格式字符串
             cron_val = full_config.get("cron")
             if cron_val:
                 scheduler.add_job(
@@ -83,9 +87,12 @@ class AutomationManager:
                     kwargs={"automation_id": auto.id},
                     id=job_id,
                     replace_existing=True,
-                    # 解析 5 位或 6 位 cron 表达式 (简单处理常见情况)
                     **self._parse_cron(cron_val)
                 )
+            else:
+                raise ValueError("cron 触发器缺少 cron 表达式")
+        else:
+            raise ValueError(f"不支持的触发方式: {auto.trigger}")
         
         logger.debug(f"[Automation] 已注册任务: {auto.name} (ID: {auto.id}, 触发: {auto.trigger})")
 
@@ -112,7 +119,6 @@ class AutomationManager:
 
             logger.info(f"[Automation] 🚀 开始执行任务: {auto.name}")
             
-            error_msg = None
             try:
                 # 3. 根据类型分发执行逻辑
                 result_msg = "执行成功"
@@ -136,7 +142,7 @@ class AutomationManager:
                     ok = sum(1 for r in results if r.success)
                     result_msg = f"签到完成: {ok}/{len(results)} 成功"
                 else:
-                    logger.warning(f"[Automation] 未知任务类型: {auto.type}")
+                    raise ValueError(f"未知任务类型: {auto.type}")
                 
                 status = "success"
                 message = result_msg or "执行成功"
@@ -144,7 +150,6 @@ class AutomationManager:
                 logger.error(f"[Automation] 任务 {auto.name} 执行失败: {e}")
                 status = "fail"
                 message = str(e)
-                error_msg = str(e)
 
             # 4. 更新历史与任务状态
             end_time = datetime.now()
@@ -171,17 +176,25 @@ class AutomationManager:
         return True
 
     def _parse_cron(self, cron_val: str) -> dict:
-        """简单的 cron 字符串解析器 (兼容 5 位标准格式)"""
+        """解析 5 段 cron 表达式；非法输入抛出 ValueError。"""
+        text = str(cron_val or "").strip()
+        parts = text.split()
+        if len(parts) != 5:
+            raise ValueError(f"非法 cron 表达式: {text!r}（需要 5 段）")
+        return {
+            "minute": parts[0],
+            "hour": parts[1],
+            "day": parts[2],
+            "month": parts[3],
+            "day_of_week": parts[4],
+        }
+
+    @staticmethod
+    def _to_positive_int(value):
+        if value is None or value == "":
+            return None
         try:
-            parts = cron_val.split()
-            if len(parts) == 5:
-                return {
-                    "minute": parts[0],
-                    "hour": parts[1],
-                    "day": parts[2],
-                    "month": parts[3],
-                    "day_of_week": parts[4]
-                }
-            return {"cron": cron_val}  # 兜底
-        except:
-            return {}
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None

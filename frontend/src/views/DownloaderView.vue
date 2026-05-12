@@ -103,7 +103,12 @@
           </div>
           <div class="input-item">
             <label>Password</label>
-            <el-input v-model="form.password" type="password" show-password placeholder="Password" />
+            <el-input
+              v-model="form.password"
+              type="password"
+              show-password
+              :placeholder="editingId ? '留空表示保留当前密码' : 'Password'"
+            />
           </div>
           <div class="input-item">
              <label>Client Type</label>
@@ -225,7 +230,7 @@ function openEditDialog(row) {
   editingId.value = row.id
   Object.assign(form, { 
     name: row.name, client_type: row.client_type, host: row.host, 
-    username: row.username, password: row.password, category: row.category, 
+    username: row.username, password: '', category: row.category, 
     save_path: row.save_path, priority: row.priority, is_active: row.is_active,
     auto_category_management: row.auto_category_management, 
     sequential_download: row.sequential_download,

@@ -59,6 +59,40 @@ async def add_site(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/registry/list", response_model=Response, summary="查看内置支持的站点列表（注册表）")
+async def list_registry(_: User = Depends(get_current_user)):
+    """返回内置 sites.json 中所有支持的站点元数据（不含认证信息）"""
+    indexers = registry.get_all_indexers()
+    return Response(data=indexers, message=f"共 {len(indexers)} 个内置站点")
+
+
+@router.post("/cookiecloud/sync", response_model=Response, summary="同步 CookieCloud")
+async def sync_cookiecloud(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """从 CookieCloud 服务同步站点 Cookie"""
+    from app.core.config import settings
+    if not settings.COOKIECLOUD_HOST:
+        raise HTTPException(status_code=400, detail="未配置 CookieCloud 服务")
+    manager = SiteManager(db)
+    background_tasks.add_task(manager.sync_cookiecloud)
+    return Response(message="CookieCloud 同步已在后台启动")
+
+
+@router.post("/checkin/all", response_model=Response, summary="批量签到所有激活站点")
+async def checkin_all_sites(
+    background_tasks: BackgroundTasks,
+    _: User = Depends(get_current_user),
+):
+    """在后台对所有激活站点批量执行签到"""
+    from app.modules.checkin import CheckinManager
+    manager = CheckinManager()
+    background_tasks.add_task(manager.checkin_all)
+    return Response(message="批量签到已在后台启动，请查看日志")
+
+
 @router.get("/{site_id}", response_model=Response, summary="获取站点详情")
 async def get_site(
     site_id: int,
@@ -146,28 +180,6 @@ async def test_site(
     return Response(data=test_result)
 
 
-@router.get("/registry/list", response_model=Response, summary="查看内置支持的站点列表（注册表）")
-async def list_registry(_: User = Depends(get_current_user)):
-    """返回内置 sites.json 中所有支持的站点元数据（不含认证信息）"""
-    indexers = registry.get_all_indexers()
-    return Response(data=indexers, message=f"共 {len(indexers)} 个内置站点")
-
-
-@router.post("/cookiecloud/sync", response_model=Response, summary="同步 CookieCloud")
-async def sync_cookiecloud(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    """从 CookieCloud 服务同步站点 Cookie"""
-    from app.core.config import settings
-    if not settings.COOKIECLOUD_HOST:
-        raise HTTPException(status_code=400, detail="未配置 CookieCloud 服务")
-    manager = SiteManager(db)
-    background_tasks.add_task(manager.sync_cookiecloud)
-    return Response(message="CookieCloud 同步已在后台启动")
-
-
 @router.post("/{site_id}/checkin", response_model=Response, summary="手动触发站点签到")
 async def checkin_site(
     site_id: int,
@@ -186,15 +198,3 @@ async def checkin_site(
         ),
         message="签到成功" if result.success else "签到失败",
     )
-
-
-@router.post("/checkin/all", response_model=Response, summary="批量签到所有激活站点")
-async def checkin_all_sites(
-    background_tasks: BackgroundTasks,
-    _: User = Depends(get_current_user),
-):
-    """在后台对所有激活站点批量执行签到"""
-    from app.modules.checkin import CheckinManager
-    manager = CheckinManager()
-    background_tasks.add_task(manager.checkin_all)
-    return Response(message="批量签到已在后台启动，请查看日志")

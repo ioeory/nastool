@@ -80,6 +80,23 @@
       class="site-dialog"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+        <el-form-item v-if="!editingId" label="内置模板">
+          <el-select
+            v-model="selectedRegistryId"
+            filterable
+            clearable
+            placeholder="可选：从内置站点模板预填"
+            style="width: 100%;"
+            @change="applyRegistryTemplate"
+          >
+            <el-option
+              v-for="item in registryItems"
+              :key="item.id"
+              :label="`${item.name} (${item.domain})`"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="站点地址" prop="url">
           <el-input v-model="form.url" placeholder="https://pt.example.com" />
         </el-form-item>
@@ -145,6 +162,8 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const editingId = ref(null)
 const formRef = ref()
+const registryItems = ref([])
+const selectedRegistryId = ref('')
 
 const form = reactive({
   url: '', cookie: '', apikey: '', ua: '', rss: '',
@@ -164,14 +183,35 @@ async function loadSites() {
   finally { loading.value = false }
 }
 
+async function loadRegistry() {
+  try {
+    const res = await siteApi.registryList()
+    registryItems.value = res.data || []
+  } catch {
+    registryItems.value = []
+  }
+}
+
+function applyRegistryTemplate(templateId) {
+  const meta = registryItems.value.find((item) => item.id === templateId)
+  if (!meta) return
+  form.url = meta.url || `https://${meta.domain}`
+  if (!form.note) {
+    form.note = meta.note || ''
+  }
+  ElMessage.success(`已应用模板：${meta.name}`)
+}
+
 function openAddDialog() {
   editingId.value = null
+  selectedRegistryId.value = ''
   Object.assign(form, { url: '', cookie: '', apikey: '', ua: '', rss: '', pri: 50, proxy: false, render: false, note: '' })
   dialogVisible.value = true
 }
 
 function openEditDialog(row) {
   editingId.value = row.id
+  selectedRegistryId.value = ''
   Object.assign(form, { url: row.url, cookie: '', apikey: '', ua: row.ua || '', rss: row.rss || '', pri: row.pri, proxy: row.proxy, render: row.render, note: row.note || '' })
   dialogVisible.value = true
 }
@@ -260,7 +300,9 @@ async function checkinAll() {
   }
 }
 
-onMounted(loadSites)
+onMounted(async () => {
+  await Promise.all([loadSites(), loadRegistry()])
+})
 </script>
 
 <style lang="scss" scoped>

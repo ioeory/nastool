@@ -109,7 +109,6 @@
                 <el-option label="订阅检查" value="subscribe" />
                 <el-option label="站点刷流" value="brush" />
                 <el-option label="站点签到" value="site_checkin" />
-                <el-option label="系统清理" value="cleanup" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -130,14 +129,44 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item v-if="form.trigger === 'interval'" label="间隔时间 (分钟)" required>
-              <el-input-number v-model="form.trigger_config.minutes" :min="1" />
+            <el-form-item v-if="form.trigger === 'interval'" label="间隔时间" required>
+              <div style="display: flex; gap: 8px; width: 100%;">
+                <el-input-number v-model="form.trigger_config.interval_value" :min="1" style="flex: 1;" />
+                <el-select v-model="form.trigger_config.interval_unit" style="width: 120px;">
+                  <el-option label="分钟" value="minutes" />
+                  <el-option label="小时" value="hours" />
+                  <el-option label="秒" value="seconds" />
+                </el-select>
+              </div>
             </el-form-item>
             <el-form-item v-if="form.trigger === 'cron'" label="Cron 表达式" required>
               <el-input v-model="form.trigger_config.cron" placeholder="0 0 * * *" />
             </el-form-item>
           </el-col>
         </el-row>
+
+        <template v-if="form.type === 'site_checkin'">
+          <el-divider content-position="left">签到任务配置</el-divider>
+          <el-form-item label="目标站点（留空表示全部启用站点）">
+            <el-select
+              v-model="form.task_config.sites"
+              multiple
+              filterable
+              clearable
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="可选：指定签到站点"
+              style="width: 100%;"
+            >
+              <el-option
+                v-for="site in siteOptions"
+                :key="site.id"
+                :label="`${site.name} (${site.domain})`"
+                :value="site.id"
+              />
+            </el-select>
+          </el-form-item>
+        </template>
 
         <!-- 针对刷流任务的特殊配置 -->
         <template v-if="form.type === 'brush'">
@@ -160,7 +189,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Plus, Refresh, CaretRight, Setting, Switch, Bell, Operation, Timer, Delete, Connection } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { automationApi } from '@/api'
+import { automationApi, siteApi } from '@/api'
 import dayjs from 'dayjs'
 import BrushConfig from './components/BrushConfig.vue'
 
@@ -171,13 +200,14 @@ const selectedTaskName = ref('')
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const editingId = ref(null)
+const siteOptions = ref([])
 
 const form = reactive({
   name: '',
   description: '',
   type: 'transfer',
   trigger: 'interval',
-  trigger_config: { minutes: 30, cron: '0 0 * * *' },
+  trigger_config: { interval_value: 30, interval_unit: 'minutes', cron: '0 0 * * *' },
   task_config: {},
   is_active: true
 })
@@ -191,11 +221,57 @@ async function fetchData() {
   }
 }
 
+async function loadSiteOptions() {
+  try {
+    const res = await siteApi.list(true)
+    siteOptions.value = res.data || []
+  } catch {
+    siteOptions.value = []
+  }
+}
+
+function normalizeTriggerConfig(trigger, triggerConfig) {
+  const base = triggerConfig || {}
+  if (trigger !== 'interval') {
+    return {
+      interval_value: 30,
+      interval_unit: 'minutes',
+      cron: base.cron || '0 0 * * *',
+    }
+  }
+  if (Number(base.minutes) > 0) {
+    return {
+      interval_value: Number(base.minutes),
+      interval_unit: 'minutes',
+      cron: base.cron || '0 0 * * *',
+    }
+  }
+  if (Number(base.hours) > 0) {
+    return {
+      interval_value: Number(base.hours),
+      interval_unit: 'hours',
+      cron: base.cron || '0 0 * * *',
+    }
+  }
+  if (Number(base.seconds) > 0) {
+    return {
+      interval_value: Number(base.seconds),
+      interval_unit: 'seconds',
+      cron: base.cron || '0 0 * * *',
+    }
+  }
+  return {
+    interval_value: 30,
+    interval_unit: 'minutes',
+    cron: base.cron || '0 0 * * *',
+  }
+}
+
 function handleAdd() {
   editingId.value = null
   Object.assign(form, {
     name: '', description: '', type: 'transfer', trigger: 'interval',
-    trigger_config: { minutes: 30, cron: '0 0 * * *' },
+    trigger_config: { interval_value: 30, interval_unit: 'minutes', cron: '0 0 * * *' },
     task_config: {}, is_active: true
   })
   dialogVisible.value = true
@@ -208,10 +284,16 @@ function handleEdit(auto) {
     description: auto.description,
     type: auto.type,
     trigger: auto.trigger,
-    trigger_config: JSON.parse(JSON.stringify(auto.trigger_config || { minutes: 30, cron: '0 0 * * *' })),
+    trigger_config: normalizeTriggerConfig(auto.trigger, JSON.parse(JSON.stringify(auto.trigger_config || {}))),
     task_config: JSON.parse(JSON.stringify(auto.task_config || {})),
     is_active: auto.is_active
   })
+  if (form.type === 'site_checkin') {
+    form.task_config = {
+      ...(form.task_config || {}),
+      sites: Array.isArray(form.task_config?.sites) ? form.task_config.sites : [],
+    }
+  }
   dialogVisible.value = true
 }
 
@@ -223,7 +305,11 @@ async function submitForm() {
     // 深度克隆并清理配置，防止参数冲突
     const payload = JSON.parse(JSON.stringify(form))
     if (payload.trigger === 'interval') {
-      payload.trigger_config = { minutes: payload.trigger_config.minutes }
+      const unit = payload.trigger_config?.interval_unit || 'minutes'
+      const value = Number(payload.trigger_config?.interval_value || 0)
+      payload.trigger_config = {
+        [unit]: value > 0 ? value : 30,
+      }
     } else if (payload.trigger === 'cron') {
       payload.trigger_config = { cron: payload.trigger_config.cron }
     }
@@ -234,6 +320,13 @@ async function submitForm() {
       if (tc.feed_source !== 'rss' && tc.feed_source !== 'search') {
         tc.feed_source = ((tc.rss_url || '').trim() || tc.use_rss) ? 'rss' : 'search'
       }
+    }
+
+    if (payload.type === 'site_checkin') {
+      payload.task_config = payload.task_config || {}
+      payload.task_config.sites = Array.isArray(payload.task_config.sites)
+        ? payload.task_config.sites.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+        : []
     }
 
     if (editingId.value) {
@@ -311,7 +404,11 @@ async function showHistory(auto) {
 }
 
 function formatTrigger(auto) {
-  if (auto.trigger === 'interval') return `每 ${auto.trigger_config?.minutes || 30} 分钟`
+  if (auto.trigger === 'interval') {
+    if (auto.trigger_config?.hours) return `每 ${auto.trigger_config.hours} 小时`
+    if (auto.trigger_config?.seconds) return `每 ${auto.trigger_config.seconds} 秒`
+    return `每 ${auto.trigger_config?.minutes || 30} 分钟`
+  }
   if (auto.trigger === 'cron') return `Cron: ${auto.trigger_config?.cron}`
   return '手动'
 }
@@ -320,7 +417,9 @@ function formatTime(val) {
   return val ? dayjs(val).format('MM-DD HH:mm:ss') : '-'
 }
 
-onMounted(fetchData)
+onMounted(async () => {
+  await Promise.all([fetchData(), loadSiteOptions()])
+})
 </script>
 
 <style lang="scss" scoped>
