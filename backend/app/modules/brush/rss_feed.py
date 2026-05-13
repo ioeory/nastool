@@ -86,6 +86,33 @@ def _item_title(item_el: ET.Element) -> str:
     return "Unknown"
 
 
+def _item_description(item_el: ET.Element) -> str:
+    for child in item_el:
+        tag = _local_tag(child.tag).lower()
+        if tag in ("description", "summary", "content", "encoded", "content:encoded"):
+            text = (child.text or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _infer_promotion(*parts: str) -> str:
+    text = " ".join(p for p in parts if p).lower()
+    if not text:
+        return ""
+
+    # 优先识别更具体的优惠类型，再回退到 FREE。
+    if any(token in text for token in ("2xfree", "2x free", "free2up", "twoupfree", "freeleech")):
+        return "2XFREE"
+    if "50%" in text or "half" in text:
+        return "50%"
+    if "30%" in text:
+        return "30%"
+    if any(token in text for token in ("free", "freeleech")):
+        return "FREE"
+    return ""
+
+
 def _parse_rss_channel(root: ET.Element) -> List[ET.Element]:
     items: List[ET.Element] = []
     for el in root.iter():
@@ -153,6 +180,7 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
     out: List[TorrentItem] = []
     for item_el in raw_items:
         title = _item_title(item_el)
+        desc = _item_description(item_el)
         dl, detail = _find_download_url(item_el)
         if not dl:
             continue
@@ -176,6 +204,7 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
                 site_id=site.id,
                 site_name=site.name,
                 title=title,
+                description=desc or None,
                 enclosure=dl,
                 detail_url=detail_page,
                 pubdate=pub,
@@ -183,7 +212,7 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
                 seeders=0,
                 leechers=0,
                 downloads=0,
-                free="",
+                free=_infer_promotion(title, desc),
             )
         )
 
