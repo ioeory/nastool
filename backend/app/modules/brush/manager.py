@@ -265,8 +265,9 @@ class BrushManager:
                 if t.free != promotion:
                     continue
             elif include_free:
-                # 只要免费的
-                if not t.free:
+                # 兼容 RSS/Atom：很多订阅没有结构化优惠字段。
+                # 仅在明确识别到「非免费」时拦截，空标记视为可继续参与匹配。
+                if t.free and t.free != "FREE":
                     continue
 
             # --- H&R 过滤 ---
