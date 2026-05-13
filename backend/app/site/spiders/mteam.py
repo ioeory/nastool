@@ -270,53 +270,58 @@ class MTeamSpider(BaseSpider):
 
     async def download_torrent(self, url: str) -> Optional[bytes]:
         """
-        处理特殊的 mteam_dl:// 下载链接
-        1. POST /api/torrent/genDlToken 取 token
-        2. GET 下载流
+        处理两类下载链接：
+        1. 旧版 mteam_dl://{id}，通过 genDlToken 换取真实下载地址
+        2. RSS/HTML 里直接拿到的 http(s) 下载链接，直接携带认证头获取
         """
-        if not url.startswith("mteam_dl://"):
-            return None
-            
-        torrent_id = url.split("mteam_dl://")[1]
-        token_url = urljoin(self.api_base, "/api/torrent/genDlToken")
-        
         try:
             async with await self.get_client() as client:
-                # 获取 Token
-                # 这里很多 API 默认是 JSON 体，所以尝试 data 还是 json
-                token_resp = await client.post(token_url, data={"id": torrent_id})
-                if token_resp.status_code != 200:
-                    logger.error(f"/{self.site.name}/ genDlToken HTTP报错: {token_resp.status_code} - {token_resp.text}")
-                    # 尝试用 json:
-                    token_resp_json = await client.post(token_url, json={"id": torrent_id})
-                    if token_resp_json.status_code == 200:
-                        token_resp = token_resp_json
-                    else:
+                if url.startswith("mteam_dl://"):
+                    torrent_id = url.split("mteam_dl://", 1)[1]
+                    token_url = urljoin(self.api_base, "/api/torrent/genDlToken")
+
+                    # 获取 Token
+                    # 这里很多 API 默认是 JSON 体，所以尝试 data 还是 json
+                    token_resp = await client.post(token_url, data={"id": torrent_id})
+                    if token_resp.status_code != 200:
+                        logger.error(f"/{self.site.name}/ genDlToken HTTP报错: {token_resp.status_code} - {token_resp.text}")
+                        # 尝试用 json:
+                        token_resp_json = await client.post(token_url, json={"id": torrent_id})
+                        if token_resp_json.status_code == 200:
+                            token_resp = token_resp_json
+                        else:
+                            return None
+
+                    token_data = token_resp.json()
+                    if str(token_data.get("code")) != "0":
+                        logger.error(f"/{self.site.name}/ genDlToken 业务报错: {token_data}")
+
+                        # 再试一次 json= （防止上面返回的其实是 HTTP 200 但业务报错了，比如 form 不支持）
+                        token_resp2 = await client.post(token_url, json={"id": str(torrent_id)})
+                        if token_resp2.status_code == 200 and str(token_resp2.json().get("code")) == "0":
+                            token_data = token_resp2.json()
+                        else:
+                            return None
+
+                    download_url = token_data.get("data")
+                    if not download_url:
+                        logger.error(f"/{self.site.name}/ genDlToken 没有拿到 data")
                         return None
-                    
-                token_data = token_resp.json()
-                if str(token_data.get("code")) != "0":
-                    logger.error(f"/{self.site.name}/ genDlToken 业务报错: {token_data}")
-                    
-                    # 再试一次 json= （防止上面返回的其实是 HTTP 200 但业务报错了，比如 form 不支持）
-                    token_resp2 = await client.post(token_url, json={"id": str(torrent_id)})
-                    if token_resp2.status_code == 200 and str(token_resp2.json().get("code")) == "0":
-                        token_data = token_resp2.json()
-                    else:
-                        return None
-                    
-                download_url = token_data.get("data")
-                if not download_url:
-                    logger.error(f"/{self.site.name}/ genDlToken 没有拿到 data")
-                    return None
-                    
-                # 请求文件内容
-                logger.debug(f"成功拿到 M-Team 专属下载地址: {download_url}")
-                file_resp = await client.get(download_url)
-                if file_resp.status_code == 200:
-                    return file_resp.content
-                else:
+
+                    # 请求文件内容
+                    logger.debug(f"成功拿到 M-Team 专属下载地址: {download_url}")
+                    file_resp = await client.get(download_url)
+                    if file_resp.status_code == 200 and file_resp.content:
+                        return file_resp.content
                     logger.error(f"获取种子实体失败: {file_resp.status_code} - {file_resp.text}")
+                    return None
+
+                # RSS 直链或 HTML 中的下载链接：直接请求即可
+                file_resp = await client.get(url)
+                if file_resp.status_code == 200 and file_resp.content:
+                    return file_resp.content
+                logger.error(f"/{self.site.name}/ 直接下载种子失败: {file_resp.status_code} - {file_resp.text}")
+                return None
                     
         except Exception as e:
             logger.error(f"/{self.site.name}/ 下载种子异常: {e}")
