@@ -7,6 +7,7 @@ Search 返回体结构见 github.com/sagan/ptool/site/mtorrent/types.go：
 """
 from typing import Any, List, Optional
 import httpx
+import re
 from loguru import logger
 from urllib.parse import urljoin
 
@@ -129,6 +130,28 @@ def _resolve_free_from_mteam_item(item: dict) -> str:
     if "FREE" in blob:
         return "FREE"
     return ""
+
+
+def _extract_torrent_id_from_url(url: str) -> Optional[str]:
+    text = str(url or "").strip()
+    if not text:
+        return None
+    if text.startswith("mteam_dl://"):
+        torrent_id = text.split("mteam_dl://", 1)[1].strip()
+        return torrent_id or None
+
+    patterns = (
+        r"[?&]id=(\d+)",
+        r"/detail/(\d+)",
+        r"/torrent/(\d+)",
+        r"/download/(\d+)",
+        r"/(\d+)(?:[/?#]|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
 class MTeamSpider(BaseSpider):
@@ -270,14 +293,13 @@ class MTeamSpider(BaseSpider):
 
     async def download_torrent(self, url: str) -> Optional[bytes]:
         """
-        处理两类下载链接：
-        1. 旧版 mteam_dl://{id}，通过 genDlToken 换取真实下载地址
-        2. RSS/HTML 里直接拿到的 http(s) 下载链接，直接携带认证头获取
+        优先从 URL 中提取 torrent id 并通过 genDlToken 换取真实下载地址；
+        若无法提取 id，再回退到 RSS/HTML 中的直链请求。
         """
         try:
             async with await self.get_client() as client:
-                if url.startswith("mteam_dl://"):
-                    torrent_id = url.split("mteam_dl://", 1)[1]
+                torrent_id = _extract_torrent_id_from_url(url)
+                if torrent_id:
                     token_url = urljoin(self.api_base, "/api/torrent/genDlToken")
 
                     # 获取 Token
@@ -316,7 +338,7 @@ class MTeamSpider(BaseSpider):
                     logger.error(f"获取种子实体失败: {file_resp.status_code} - {file_resp.text}")
                     return None
 
-                # RSS 直链或 HTML 中的下载链接：直接请求即可
+                # RSS 直链或 HTML 中的下载链接：仅在无法提取 id 时回退使用
                 file_resp = await client.get(url)
                 if file_resp.status_code == 200 and file_resp.content:
                     return file_resp.content
