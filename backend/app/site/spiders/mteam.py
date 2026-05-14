@@ -141,7 +141,7 @@ def _extract_torrent_id_from_url(url: str) -> Optional[str]:
         return torrent_id or None
 
     patterns = (
-        r"[?&]id=(\d+)",
+        r"[?&](?:tid|torrent_id|torrentId|id)=(\d+)",
         r"/detail/(\d+)",
         r"/torrent/(\d+)",
         r"/download/(\d+)",
@@ -152,6 +152,35 @@ def _extract_torrent_id_from_url(url: str) -> Optional[str]:
         if match:
             return match.group(1)
     return None
+
+
+_SENSITIVE_QS = ("sign", "passkey", "uid", "token", "auth")
+
+
+def _redact_url(url: str) -> str:
+    """脱敏 URL 中的 sign/passkey/uid/token 等参数，方便日志输出。"""
+    text = str(url or "")
+    if not text:
+        return text
+    for key in _SENSITIVE_QS:
+        text = re.sub(
+            rf"({key}=)([^&#\s]+)",
+            lambda m: f"{m.group(1)}***{m.group(2)[-4:] if len(m.group(2)) > 4 else ''}",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def _preview_bytes(data: bytes, limit: int = 200) -> str:
+    if not data:
+        return "<empty>"
+    sample = data[:limit]
+    try:
+        text = sample.decode("utf-8", errors="replace")
+    except Exception:
+        text = repr(sample)
+    return text.replace("\n", "\\n").replace("\r", "\\r")
 
 
 class MTeamSpider(BaseSpider):
@@ -295,59 +324,141 @@ class MTeamSpider(BaseSpider):
         """
         优先从 URL 中提取 torrent id 并通过 genDlToken 换取真实下载地址；
         若无法提取 id，再回退到 RSS/HTML 中的直链请求。
+        全程打印详细 debug 日志，便于排查 “种子文件为空” 的根因。
         """
+        site_tag = f"/{self.site.name}/"
+        safe_input = _redact_url(url)
+        logger.info(f"{site_tag} download_torrent 入参 url={safe_input!r}")
+
         try:
             async with await self.get_client() as client:
                 torrent_id = _extract_torrent_id_from_url(url)
+                logger.info(
+                    f"{site_tag} 解析 torrent_id={torrent_id!r} "
+                    f"(来源: {'mteam_dl' if str(url).startswith('mteam_dl://') else 'url-pattern'})"
+                )
+
                 if torrent_id:
                     token_url = urljoin(self.api_base, "/api/torrent/genDlToken")
+                    logger.info(f"{site_tag} 请求 genDlToken: POST {token_url} id={torrent_id}")
 
-                    # 获取 Token
-                    # 这里很多 API 默认是 JSON 体，所以尝试 data 还是 json
+                    # 先尝试 form
                     token_resp = await client.post(token_url, data={"id": torrent_id})
+                    logger.info(
+                        f"{site_tag} genDlToken[form] resp status={token_resp.status_code} "
+                        f"len={len(token_resp.content or b'')} "
+                        f"content-type={token_resp.headers.get('content-type','')!r} "
+                        f"body={token_resp.text[:500]!r}"
+                    )
                     if token_resp.status_code != 200:
-                        logger.error(f"/{self.site.name}/ genDlToken HTTP报错: {token_resp.status_code} - {token_resp.text}")
-                        # 尝试用 json:
+                        # 再试 json
+                        logger.warning(f"{site_tag} genDlToken[form] HTTP 非 200，尝试 json 体重试")
                         token_resp_json = await client.post(token_url, json={"id": torrent_id})
+                        logger.info(
+                            f"{site_tag} genDlToken[json] resp status={token_resp_json.status_code} "
+                            f"body={token_resp_json.text[:500]!r}"
+                        )
                         if token_resp_json.status_code == 200:
                             token_resp = token_resp_json
                         else:
+                            logger.error(f"{site_tag} genDlToken 两种请求体均失败，放弃")
                             return None
 
-                    token_data = token_resp.json()
-                    if str(token_data.get("code")) != "0":
-                        logger.error(f"/{self.site.name}/ genDlToken 业务报错: {token_data}")
+                    try:
+                        token_data = token_resp.json()
+                    except Exception as je:
+                        logger.error(
+                            f"{site_tag} genDlToken 响应不是合法 JSON: {je}; "
+                            f"raw={token_resp.text[:500]!r}"
+                        )
+                        return None
 
-                        # 再试一次 json= （防止上面返回的其实是 HTTP 200 但业务报错了，比如 form 不支持）
+                    if str(token_data.get("code")) != "0":
+                        logger.warning(
+                            f"{site_tag} genDlToken 业务码非 0: code={token_data.get('code')!r} "
+                            f"message={token_data.get('message')!r} -> 用 json 体再试一次"
+                        )
                         token_resp2 = await client.post(token_url, json={"id": str(torrent_id)})
-                        if token_resp2.status_code == 200 and str(token_resp2.json().get("code")) == "0":
-                            token_data = token_resp2.json()
+                        logger.info(
+                            f"{site_tag} genDlToken[json-retry] status={token_resp2.status_code} "
+                            f"body={token_resp2.text[:500]!r}"
+                        )
+                        try:
+                            token_data2 = token_resp2.json() if token_resp2.status_code == 200 else None
+                        except Exception:
+                            token_data2 = None
+                        if token_data2 and str(token_data2.get("code")) == "0":
+                            token_data = token_data2
                         else:
+                            logger.error(f"{site_tag} genDlToken 业务失败，放弃; data={token_data}")
                             return None
 
                     download_url = token_data.get("data")
                     if not download_url:
-                        logger.error(f"/{self.site.name}/ genDlToken 没有拿到 data")
+                        logger.error(
+                            f"{site_tag} genDlToken 响应缺少 data 字段: {token_data!r}"
+                        )
                         return None
 
-                    # 请求文件内容
-                    logger.debug(f"成功拿到 M-Team 专属下载地址: {download_url}")
+                    logger.info(
+                        f"{site_tag} 取得真实下载地址: {_redact_url(download_url)}"
+                    )
                     file_resp = await client.get(download_url)
-                    if file_resp.status_code == 200 and file_resp.content:
-                        return file_resp.content
-                    logger.error(f"获取种子实体失败: {file_resp.status_code} - {file_resp.text}")
-                    return None
+                    ctype = file_resp.headers.get("content-type", "")
+                    clen = file_resp.headers.get("content-length", "")
+                    logger.info(
+                        f"{site_tag} 下载实体响应 status={file_resp.status_code} "
+                        f"content-length={clen!r} content-type={ctype!r} "
+                        f"body_bytes={len(file_resp.content or b'')}"
+                    )
 
-                # RSS 直链或 HTML 中的下载链接：仅在无法提取 id 时回退使用
-                file_resp = await client.get(url)
-                if file_resp.status_code == 200 and file_resp.content:
+                    if file_resp.status_code != 200:
+                        logger.error(
+                            f"{site_tag} 下载实体 HTTP 非 200: {file_resp.status_code} "
+                            f"body_preview={_preview_bytes(file_resp.content)!r}"
+                        )
+                        return None
+                    if not file_resp.content:
+                        logger.error(f"{site_tag} 下载实体响应体为空 (Content-Length={clen!r})")
+                        return None
+                    # 简单校验：BitTorrent v1 文件以 'd' 开头 (bencoded dict)
+                    head = file_resp.content[:1]
+                    if head != b"d":
+                        logger.warning(
+                            f"{site_tag} 实体首字节非 bencoded dict ({head!r})，可能拿到的是 HTML/JSON。"
+                            f" preview={_preview_bytes(file_resp.content)!r}"
+                        )
+                    else:
+                        logger.info(f"{site_tag} 下载完成，大小={len(file_resp.content)} bytes")
                     return file_resp.content
-                logger.error(f"/{self.site.name}/ 直接下载种子失败: {file_resp.status_code} - {file_resp.text}")
-                return None
-                    
+
+                # 无法提取 id：当作 RSS 直链 / HTML 下载链接处理
+                logger.info(f"{site_tag} 未能提取 torrent_id，回退直链下载: {safe_input}")
+                file_resp = await client.get(url)
+                ctype = file_resp.headers.get("content-type", "")
+                clen = file_resp.headers.get("content-length", "")
+                logger.info(
+                    f"{site_tag} 直链响应 status={file_resp.status_code} "
+                    f"content-length={clen!r} content-type={ctype!r} "
+                    f"body_bytes={len(file_resp.content or b'')}"
+                )
+                if file_resp.status_code != 200 or not file_resp.content:
+                    logger.error(
+                        f"{site_tag} 直链下载失败: status={file_resp.status_code} "
+                        f"body_preview={_preview_bytes(file_resp.content)!r}"
+                    )
+                    return None
+                head = file_resp.content[:1]
+                if head != b"d":
+                    logger.warning(
+                        f"{site_tag} 直链返回首字节非 bencoded dict ({head!r})，可能是登录页/JSON。"
+                        f" preview={_preview_bytes(file_resp.content)!r}"
+                    )
+                return file_resp.content
+
         except Exception as e:
-            logger.error(f"/{self.site.name}/ 下载种子异常: {e}")
-            
+            logger.exception(f"{site_tag} 下载种子异常: {e}")
+
         return None
 
     async def get_user_info(self) -> dict:
