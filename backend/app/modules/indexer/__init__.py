@@ -89,12 +89,28 @@ class IndexerModule:
 
     async def download_torrent(self, site: Site, url: str) -> Optional[bytes]:
         """利用对应站点的爬虫下种子（处理Mteam等的特殊逻辑）"""
+        logger.warning(
+            f"[Indexer] download_torrent 入口: site={site.name} domain={site.domain!r} "
+            f"url={url!r}"
+        )
         meta = self.registry.get_indexer(site.domain)
         if not meta:
+            logger.error(
+                f"[Indexer] 站点 domain={site.domain!r} 未在 SiteRegistry 中匹配到配置 "
+                f"(ext_domains 未覆盖?)，无法下载种子。已知配置数: {len(self.registry.get_all_indexers())}"
+            )
             return None
-            
+        logger.warning(
+            f"[Indexer] 命中注册表: site={site.name} -> parser={meta.get('parser')!r} "
+            f"id={meta.get('id')!r} domain={meta.get('domain')!r}"
+        )
+
         spider = self._get_spider(site, meta)
         if not spider:
+            logger.error(f"[Indexer] 无法实例化 spider: site={site.name} meta={meta!r}")
             return None
-            
+        logger.warning(
+            f"[Indexer] spider 实例化成功: {spider.__class__.__name__} "
+            f"-> 调用 download_torrent()"
+        )
         return await spider.download_torrent(url)
