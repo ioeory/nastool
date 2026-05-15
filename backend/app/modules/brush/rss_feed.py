@@ -96,6 +96,30 @@ def _item_description(item_el: ET.Element) -> str:
     return ""
 
 
+def _item_all_text(item_el: ET.Element) -> str:
+    """
+    抓取 item 节点下所有可见文本（含子节点 text/tail、属性值），
+    用于 promotion 兜底识别。RSS 里促销信息可能放在 description 之外的位置
+    （CDATA、自定义命名空间字段等），仅看 description 容易漏。
+    """
+    parts: List[str] = []
+
+    def _walk(el: ET.Element) -> None:
+        if el.text and el.text.strip():
+            parts.append(el.text.strip())
+        # 属性里也可能含 "FREE 2d 11h" 之类
+        for v in el.attrib.values():
+            if v and isinstance(v, str) and v.strip():
+                parts.append(v.strip())
+        for child in el:
+            _walk(child)
+            if child.tail and child.tail.strip():
+                parts.append(child.tail.strip())
+
+    _walk(item_el)
+    return " ".join(parts)
+
+
 def _infer_promotion(*parts: str) -> str:
     text = " ".join(p for p in parts if p).lower()
     if not text:
@@ -199,6 +223,12 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
             except Exception:
                 pass
 
+        # 优惠类型推断：先用 title+desc，没命中再扫整个 item 的全部文本（CDATA / 自定义字段兜底）
+        free_val = _infer_promotion(title, desc)
+        if not free_val:
+            blob = _item_all_text(item_el)
+            free_val = _infer_promotion(blob)
+
         out.append(
             TorrentItem(
                 site_id=site.id,
@@ -212,7 +242,7 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
                 seeders=0,
                 leechers=0,
                 downloads=0,
-                free=_infer_promotion(title, desc),
+                free=free_val,
             )
         )
 

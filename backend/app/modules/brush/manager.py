@@ -257,7 +257,12 @@ class BrushManager:
 
         matched = []
         for i, t in enumerate(torrents):
-            logger.info(f"[Brush-Filter] {i+1}. 标题={t.title}, Free={t.free}, Size={(t.size or 0)/(1024**3):.2f}GB, Seeders={t.seeders}, Pubdate={t.pubdate}")
+            short_title = (t.title or "")[:80].replace("\n", " ")
+            logger.info(
+                f"[Brush-Filter] {i+1}. 标题={short_title!r}, "
+                f"Free={t.free!r}, Size={(t.size or 0)/(1024**3):.2f}GB, "
+                f"Seeders={t.seeders}, Pubdate={t.pubdate!r}"
+            )
 
             # --- 优惠过滤 ---
             if promotion:
