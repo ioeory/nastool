@@ -206,6 +206,14 @@ class MTeamSpider(BaseSpider):
         }
         return httpx.AsyncClient(timeout=self.timeout, verify=False, follow_redirects=True, headers=headers)
 
+    async def get_plain_client(self):
+        """用于直链下载（如 RSS 已带 sign 签名）的纯净 client，不带 x-api-key。"""
+        headers = {
+            "User-Agent": self.ua,
+            "Accept": "*/*",
+        }
+        return httpx.AsyncClient(timeout=self.timeout, verify=False, follow_redirects=True, headers=headers)
+
     async def search(self, keyword: str = "", page: int = 1) -> List[TorrentItem]:
         """
         利用 M-Team Search API
@@ -437,27 +445,29 @@ class MTeamSpider(BaseSpider):
 
                 # 无法提取 id：当作 RSS 直链 / HTML 下载链接处理
                 logger.warning(f"{site_tag} 未能提取 torrent_id，回退直链下载: {safe_input}")
-                file_resp = await client.get(url)
-                ctype = file_resp.headers.get("content-type", "")
-                clen = file_resp.headers.get("content-length", "")
-                logger.warning(
-                    f"{site_tag} 直链响应 status={file_resp.status_code} "
-                    f"content-length={clen!r} content-type={ctype!r} "
-                    f"body_bytes={len(file_resp.content or b'')}"
-                )
-                if file_resp.status_code != 200 or not file_resp.content:
-                    logger.error(
-                        f"{site_tag} 直链下载失败: status={file_resp.status_code} "
-                        f"body_preview={_preview_bytes(file_resp.content)!r}"
-                    )
-                    return None
-                head = file_resp.content[:1]
-                if head != b"d":
+                # 直链通常自带 sign，禁用 x-api-key 以避免被站点鉴权拒绝
+                async with await self.get_plain_client() as plain:
+                    file_resp = await plain.get(url)
+                    ctype = file_resp.headers.get("content-type", "")
+                    clen = file_resp.headers.get("content-length", "")
                     logger.warning(
-                        f"{site_tag} 直链返回首字节非 bencoded dict ({head!r})，可能是登录页/JSON。"
-                        f" preview={_preview_bytes(file_resp.content)!r}"
+                        f"{site_tag} 直链响应 status={file_resp.status_code} "
+                        f"content-length={clen!r} content-type={ctype!r} "
+                        f"body_bytes={len(file_resp.content or b'')}"
                     )
-                return file_resp.content
+                    if file_resp.status_code != 200 or not file_resp.content:
+                        logger.error(
+                            f"{site_tag} 直链下载失败: status={file_resp.status_code} "
+                            f"body_preview={_preview_bytes(file_resp.content)!r}"
+                        )
+                        return None
+                    head = file_resp.content[:1]
+                    if head != b"d":
+                        logger.warning(
+                            f"{site_tag} 直链返回首字节非 bencoded dict ({head!r})，可能是登录页/JSON。"
+                            f" preview={_preview_bytes(file_resp.content)!r}"
+                        )
+                    return file_resp.content
 
         except Exception as e:
             logger.exception(f"{site_tag} 下载种子异常: {e}")
