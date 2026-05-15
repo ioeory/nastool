@@ -365,14 +365,21 @@ class BrushManager:
                 continue
 
             # 下载 .torrent 文件内容
+            logger.warning(
+                f"[Brush] === 调用下载器: site={site.name} parser-by-domain={site.domain} "
+                f"enclosure={t.enclosure!r}"
+            )
             try:
                 torrent_bytes = await indexer.download_torrent(site, t.enclosure)
             except Exception as e:
-                logger.error(f"[Brush] 下载种子文件失败: {t.title} — {e}")
+                logger.exception(f"[Brush] 下载种子文件失败: {t.title} — {e}")
                 continue
 
             if not torrent_bytes:
-                logger.warning(f"[Brush] 种子文件为空，跳过: {t.title}")
+                logger.warning(
+                    f"[Brush] 种子文件为空，跳过: {t.title} "
+                    f"(enclosure={t.enclosure!r}, site={site.name})"
+                )
                 continue
 
             # 推送到下载器

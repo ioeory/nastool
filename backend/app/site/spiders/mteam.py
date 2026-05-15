@@ -15,6 +15,9 @@ from app.site.spiders.base import BaseSpider
 from app.schemas import TorrentItem
 from app.utils.url import extract_domain
 
+# 部署校验哨兵：启动后第一时间在日志里输出，证明本文件版本已被加载
+logger.warning("[MTeamSpider] module loaded build=2026-05-15-debug-logs")
+
 
 def _int_safe(value: Any) -> int:
     try:
@@ -328,23 +331,23 @@ class MTeamSpider(BaseSpider):
         """
         site_tag = f"/{self.site.name}/"
         safe_input = _redact_url(url)
-        logger.info(f"{site_tag} download_torrent 入参 url={safe_input!r}")
+        logger.warning(f"{site_tag} >>> MTeamSpider.download_torrent 入参 url={safe_input!r}")
 
         try:
             async with await self.get_client() as client:
                 torrent_id = _extract_torrent_id_from_url(url)
-                logger.info(
+                logger.warning(
                     f"{site_tag} 解析 torrent_id={torrent_id!r} "
                     f"(来源: {'mteam_dl' if str(url).startswith('mteam_dl://') else 'url-pattern'})"
                 )
 
                 if torrent_id:
                     token_url = urljoin(self.api_base, "/api/torrent/genDlToken")
-                    logger.info(f"{site_tag} 请求 genDlToken: POST {token_url} id={torrent_id}")
+                    logger.warning(f"{site_tag} 请求 genDlToken: POST {token_url} id={torrent_id}")
 
                     # 先尝试 form
                     token_resp = await client.post(token_url, data={"id": torrent_id})
-                    logger.info(
+                    logger.warning(
                         f"{site_tag} genDlToken[form] resp status={token_resp.status_code} "
                         f"len={len(token_resp.content or b'')} "
                         f"content-type={token_resp.headers.get('content-type','')!r} "
@@ -406,7 +409,7 @@ class MTeamSpider(BaseSpider):
                     file_resp = await client.get(download_url)
                     ctype = file_resp.headers.get("content-type", "")
                     clen = file_resp.headers.get("content-length", "")
-                    logger.info(
+                    logger.warning(
                         f"{site_tag} 下载实体响应 status={file_resp.status_code} "
                         f"content-length={clen!r} content-type={ctype!r} "
                         f"body_bytes={len(file_resp.content or b'')}"
@@ -433,11 +436,11 @@ class MTeamSpider(BaseSpider):
                     return file_resp.content
 
                 # 无法提取 id：当作 RSS 直链 / HTML 下载链接处理
-                logger.info(f"{site_tag} 未能提取 torrent_id，回退直链下载: {safe_input}")
+                logger.warning(f"{site_tag} 未能提取 torrent_id，回退直链下载: {safe_input}")
                 file_resp = await client.get(url)
                 ctype = file_resp.headers.get("content-type", "")
                 clen = file_resp.headers.get("content-length", "")
-                logger.info(
+                logger.warning(
                     f"{site_tag} 直链响应 status={file_resp.status_code} "
                     f"content-length={clen!r} content-type={ctype!r} "
                     f"body_bytes={len(file_resp.content or b'')}"
