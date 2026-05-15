@@ -38,8 +38,14 @@ class IndexerModule:
             logger.error(f"初始化爬虫失败: {site.name} -> {e}")
             return None
 
-    async def search_site(self, site: Site, keyword: str, page: int = 0) -> List[TorrentItem]:
-        """在一个特定站点执行搜索"""
+    async def search_site(
+        self,
+        site: Site,
+        keyword: str,
+        page: int = 0,
+        **extra: object,
+    ) -> List[TorrentItem]:
+        """在一个特定站点执行搜索；extra 透传给 spider.search（站点专属过滤参数等）"""
         if not site.is_active:
             logger.debug(f"/{site.name}/ 站点未启用，跳过搜索")
             return []
@@ -54,8 +60,14 @@ class IndexerModule:
             return []
 
         try:
-            logger.info(f"==> 开始在 / {site.name} / 搜索关键字: {keyword} (页码:{page})")
-            results = await spider.search(keyword, page)
+            logger.info(
+                f"==> 开始在 / {site.name} / 搜索关键字: {keyword} (页码:{page}, extra={extra})"
+            )
+            # 兼容尚未支持 extra kwargs 的 spider（如 NexusPHP）
+            try:
+                results = await spider.search(keyword, page, **extra)
+            except TypeError:
+                results = await spider.search(keyword, page)
             logger.info(f"<== / {site.name} / 返回了 {len(results)} 条结果")
             return results
         except Exception as e:

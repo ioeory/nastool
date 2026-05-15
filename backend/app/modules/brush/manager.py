@@ -167,15 +167,44 @@ class BrushManager:
                             logger.error(f"[Brush] RSS 抓取站点 {site.name} 失败: {e}")
             else:
                 indexer = IndexerModule(db)
+                # 根据 selection_rules 推导服务端过滤参数（目前主要用于 M-Team API）
+                rules_for_search = config.get("selection_rules", {}) or {}
+                promo = (rules_for_search.get("promotion") or "").strip().upper()
+                want_free_only = (
+                    promo == "FREE"
+                    or (
+                        not promo
+                        and rules_for_search.get("include_free", True)
+                    )
+                )
+                discount_map = {
+                    "FREE": "FREE",
+                    "2XFREE": "_2X_FREE",
+                    "50%": "PERCENT_50",
+                    "30%": "PERCENT_70",
+                }
+                extra_kwargs: dict = {}
+                if promo and promo in discount_map:
+                    extra_kwargs["discount"] = discount_map[promo]
+                    extra_kwargs["max_pages"] = int(config.get("search_max_pages", 3) or 3)
+                elif want_free_only:
+                    # 「仅免费」开关 —— 让站点端直接过滤 FREE，避免最新 50 条无 FREE
+                    extra_kwargs["discount"] = "FREE"
+                    extra_kwargs["max_pages"] = int(config.get("search_max_pages", 3) or 3)
+
                 for sid in site_ids:
                     site_res = await db.execute(select(Site).where(Site.id == sid))
                     site = site_res.scalar_one_or_none()
                     if not site:
                         continue
 
-                    logger.info(f"[Brush] 正在抓取站点: {site.name}")
+                    logger.info(
+                        f"[Brush] 正在抓取站点: {site.name} extra={extra_kwargs}"
+                    )
                     try:
-                        site_torrents = await indexer.search_site(site, keyword="")
+                        site_torrents = await indexer.search_site(
+                            site, keyword="", page=1, **extra_kwargs
+                        )
                         logger.info(
                             f"[Brush] {site.name} 抓取到 {len(site_torrents)} 个种子"
                         )

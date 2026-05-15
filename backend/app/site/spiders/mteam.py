@@ -15,9 +15,6 @@ from app.site.spiders.base import BaseSpider
 from app.schemas import TorrentItem
 from app.utils.url import extract_domain
 
-# 部署校验哨兵：启动后第一时间在日志里输出，证明本文件版本已被加载
-logger.warning("[MTeamSpider] module loaded build=2026-05-15-debug-logs")
-
 
 def _int_safe(value: Any) -> int:
     try:
@@ -214,57 +211,78 @@ class MTeamSpider(BaseSpider):
         }
         return httpx.AsyncClient(timeout=self.timeout, verify=False, follow_redirects=True, headers=headers)
 
-    async def search(self, keyword: str = "", page: int = 1) -> List[TorrentItem]:
+    async def search(
+        self,
+        keyword: str = "",
+        page: int = 1,
+        discount: Optional[str] = None,
+        max_pages: int = 1,
+    ) -> List[TorrentItem]:
         """
         利用 M-Team Search API
         POST /api/torrent/search
 
         与 ptool GetLatestTorrents 一致：同时请求 **normal + adult**，否则成人区种子不会出现在结果中，
         刷流会表现为「站上有 FREE、API 却永远匹配不到」。
+
+        :param discount: 服务端按 discount 过滤，可选 "FREE" / "_2X_FREE" / "PERCENT_50" / "PERCENT_70" 等。
+                         传入后会让站点只返回对应优惠类型的种子，避免本地翻页找不到 FREE 的问题。
+        :param max_pages: 自动翻页拉取的最大页数（默认 1）。指定 discount 时常需要 >1 才能凑够刷流候选数。
         """
         if page < 1:
             page = 1
+        if max_pages < 1:
+            max_pages = 1
 
         url = urljoin(self.api_base, "/api/torrent/search")
         logger.info(
             f"MTeamSpider [{self.site.name}] 搜索API: {url} "
-            f"(page={page}, modes=normal+adult)"
+            f"(page={page}+{max_pages-1}, modes=normal+adult, discount={discount!r})"
         )
 
         merged: dict[str, dict] = {}
         try:
             async with await self.get_client() as client:
                 for mode in ("normal", "adult"):
-                    payload = {
-                        "mode": mode,
-                        "categories": [],
-                        "keyword": keyword,
-                        "pageNumber": page,
-                        "pageSize": 50,
-                    }
-                    resp = await client.post(url, json=payload)
-                    if resp.status_code != 200:
-                        logger.warning(
-                            f"/{self.site.name}/ 搜索 mode={mode} HTTP {resp.status_code}"
-                        )
-                        continue
-                    data = resp.json()
-                    if str(data.get("code")) != "0":
-                        logger.warning(
-                            f"/{self.site.name}/ 搜索 mode={mode} 业务错误: {data.get('message')}"
-                        )
-                        continue
-                    rows = data.get("data", {}).get("data", []) or []
-                    for row in rows:
-                        rid = row.get("id")
-                        if rid is None:
-                            continue
-                        merged[str(rid)] = row
+                    for offset in range(max_pages):
+                        cur_page = page + offset
+                        payload: dict = {
+                            "mode": mode,
+                            "categories": [],
+                            "keyword": keyword,
+                            "pageNumber": cur_page,
+                            "pageSize": 100,
+                        }
+                        if discount:
+                            payload["discount"] = discount
+                        resp = await client.post(url, json=payload)
+                        if resp.status_code != 200:
+                            logger.warning(
+                                f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
+                                f"HTTP {resp.status_code}"
+                            )
+                            break
+                        data = resp.json()
+                        if str(data.get("code")) != "0":
+                            logger.warning(
+                                f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
+                                f"业务错误: {data.get('message')}"
+                            )
+                            break
+                        rows = data.get("data", {}).get("data", []) or []
+                        for row in rows:
+                            rid = row.get("id")
+                            if rid is None:
+                                continue
+                            merged[str(rid)] = row
+                        if len(rows) < 100:
+                            # 已是最后一页，不再继续翻
+                            break
 
             items = list(merged.values())
             logger.info(
                 f"MTeamSpider [{self.site.name}] 合并去重后 {len(items)} 条 "
-                f"(normal+adult 各最多 50)"
+                f"(normal+adult, discount={discount!r}, max_pages={max_pages})"
             )
             return self._parse_torrents(items)
 

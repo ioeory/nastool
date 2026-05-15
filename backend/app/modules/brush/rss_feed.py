@@ -202,23 +202,13 @@ async def fetch_rss_torrent_items_for_brush(site: Site, rss_url: str) -> List[To
         raw_items = _parse_rss_channel(root) or _parse_atom_feed(root)
 
     out: List[TorrentItem] = []
-    for idx, item_el in enumerate(raw_items):
+    for item_el in raw_items:
         title = _item_title(item_el)
         desc = _item_description(item_el)
         dl, detail = _find_download_url(item_el)
         if not dl:
             continue
         pub = _item_pubdate(item_el)
-
-        # 首条 item 打印完整 XML，便于排查站点 RSS 实际字段（无促销关键字时尤其有用）
-        if idx == 0:
-            try:
-                raw_xml = ET.tostring(item_el, encoding="unicode")
-            except Exception:
-                raw_xml = "<dump-failed>"
-            logger.warning(
-                f"[Brush][RSS][{site.name}] 首条 item 原始 XML (前 1500 字符):\n{raw_xml[:1500]}"
-            )
 
         detail_page = detail
         if detail_page and not detail_page.startswith("http"):
