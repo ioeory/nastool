@@ -111,11 +111,21 @@
         <div class="glass-container">
           <el-table :data="downloadData" v-loading="loadingDownload" class="history-table">
             <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" width="100" />
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag :type="getDownloadStatusType(row.status)" size="small" effect="dark">
+                  {{ getDownloadStatusText(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="大小" width="100">
               <template #default="{ row }">{{ formatBytes(row.size) }}</template>
             </el-table-column>
-            <el-table-column prop="site_id" label="站点ID" width="90" />
+            <el-table-column label="站点" width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.site_name || (row.site_id != null ? `#${row.site_id}` : '-') }}
+              </template>
+            </el-table-column>
             <el-table-column prop="created_at" label="时间" width="170" />
           </el-table>
           <el-pagination
@@ -267,6 +277,31 @@ function formatBytes(n) {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(n) / Math.log(k))
   return `${parseFloat((n / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+}
+
+function getDownloadStatusType(status) {
+  switch (status) {
+    case 'completed': return 'success'
+    case 'downloading': return 'primary'
+    case 'paused': return 'info'
+    case 'checking':
+    case 'moving': return 'warning'
+    case 'error': return 'danger'
+    default: return 'info'
+  }
+}
+
+function getDownloadStatusText(status) {
+  switch (status) {
+    case 'completed': return '已完成'
+    case 'downloading': return '下载中'
+    case 'paused': return '已暂停'
+    case 'checking': return '校验中'
+    case 'moving': return '移动中'
+    case 'error': return '错误'
+    case 'unknown': return '未知'
+    default: return status || '-'
+  }
 }
 
 onMounted(() => {
