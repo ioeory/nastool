@@ -50,10 +50,46 @@
           :downloading="downloadingIds.has(item.enclosure)"
           @download="handleDownload(item)"
           @open="openUrl(item.detail_url)"
+          @view-sources="openSources(item)"
         />
       </div>
       
     </div>
+
+    <!-- 多站聚合来源弹窗 -->
+    <el-dialog
+      v-model="sourcesVisible"
+      :title="sourcesTitle"
+      width="720px"
+      class="sources-dialog"
+      append-to-body
+    >
+      <div class="sources-list" v-if="activeSources.length">
+        <div class="source-row" v-for="(s, i) in activeSources" :key="i">
+          <div class="source-main">
+            <div class="source-head">
+              <span class="site-pill">{{ s.site_name || `站点 #${s.site_id}` }}</span>
+              <span v-if="s.free" class="free-pill">{{ s.free }}</span>
+            </div>
+            <div class="source-title" :title="s.title">{{ s.title }}</div>
+            <div class="source-meta">
+              <span><el-icon><DataLine /></el-icon> {{ formatSize(s.size) }}</span>
+              <span class="seeders"><el-icon><CaretTop /></el-icon> {{ s.seeders || 0 }}</span>
+            </div>
+          </div>
+          <div class="source-actions">
+            <el-button
+              type="primary"
+              :icon="Download"
+              :loading="downloadingIds.has(s.enclosure)"
+              @click="handleSourceDownload(s)"
+            >推送下载</el-button>
+            <el-button :icon="Link" @click="openUrl(s.detail_url)">详情页</el-button>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="此条目仅有一个来源" />
+    </el-dialog>
   </div>
 </template>
 
@@ -72,6 +108,52 @@ const loading = ref(false)
 const hasSearched = ref(false)
 const results = ref([])
 const downloadingIds = ref(new Set())
+
+// 多站聚合来源弹窗
+const sourcesVisible = ref(false)
+const activeItem = ref(null)
+const activeSources = ref([])
+const sourcesTitle = ref('')
+
+function openSources(item) {
+  activeItem.value = item
+  activeSources.value = item.sources || []
+  sourcesTitle.value = `聚合来源 · 共 ${activeSources.value.length} 个站点`
+  sourcesVisible.value = true
+}
+
+async function handleSourceDownload(source) {
+  if (!activeItem.value) return
+  // 用聚合主条目作模板，覆盖该来源独有字段，转成后端 TorrentItem
+  const base = activeItem.value
+  const payload = {
+    site_id: source.site_id,
+    site_name: source.site_name,
+    title: source.title || base.title,
+    description: base.description,
+    enclosure: source.enclosure,
+    detail_url: source.detail_url,
+    seeders: source.seeders ?? 0,
+    leechers: 0,
+    downloads: 0,
+    size: source.size ?? 0,
+    pubdate: base.pubdate,
+    free: source.free,
+    hr: false,
+    labels: [],
+    imdb_id: base.imdb_id,
+    sources: []
+  }
+  downloadingIds.value.add(source.enclosure)
+  try {
+    await searchApi.download(payload)
+    ElMessage.success(`✅ 已推送来自 ${source.site_name || '该站点'} 的资源`)
+  } catch (e) {
+    console.error(e)
+  } finally {
+    downloadingIds.value.delete(source.enclosure)
+  }
+}
 
 // 处理来自 URL 参数的自动搜索
 function checkQuery() {
@@ -229,5 +311,87 @@ function formatSize(bytes) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+}
+
+.sources-dialog {
+  :deep(.el-dialog) {
+    background: #1a1a2e;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  :deep(.el-dialog__title) { color: #fff; }
+}
+
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  transition: all .2s ease;
+
+  &:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(139, 92, 246, 0.4);
+  }
+
+  .source-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .source-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+
+    .site-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #fff;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    }
+    .free-pill {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fff;
+      background: linear-gradient(135deg, #10b981, #059669);
+    }
+  }
+  .source-title {
+    font-size: 13px;
+    color: #fff;
+    word-break: break-all;
+    line-height: 1.5;
+    margin-bottom: 6px;
+  }
+  .source-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+    span { display: inline-flex; align-items: center; gap: 4px; }
+    .seeders { color: #10b981; }
+  }
+  .source-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
 }
 </style>

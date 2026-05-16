@@ -1,8 +1,13 @@
 <template>
-  <div class="resource-card" @click="$emit('click')">
+  <div class="resource-card" @click="onCardClick">
     <!-- 顶部徽章 -->
     <div class="card-badges">
-      <span v-if="item.sources && item.sources.length > 1" class="badge multi-site">
+      <span
+        v-if="item.sources && item.sources.length > 1"
+        class="badge multi-site"
+        @click.stop="$emit('view-sources')"
+        title="点击查看全部聚合来源"
+      >
         聚合 {{ item.sources.length }} 站
       </span>
       <span v-if="item.free" class="badge free">{{ item.free }}</span>
@@ -62,6 +67,13 @@
 
     <!-- 操作浮层 (Hover) -->
     <div class="action-overlay">
+      <el-button
+        v-if="item.sources && item.sources.length > 1"
+        circle
+        :icon="Files"
+        title="查看全部聚合来源"
+        @click.stop="$emit('view-sources')"
+      />
       <el-button 
         type="primary" 
         circle 
@@ -80,7 +92,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { DataLine, CaretTop, Bottom, Download, Link } from '@element-plus/icons-vue'
+import { DataLine, CaretTop, Bottom, Download, Link, Files } from '@element-plus/icons-vue'
 import { parseTorrentTitle, getTagColor } from '@/utils/torrentParser'
 
 const props = defineProps({
@@ -88,9 +100,18 @@ const props = defineProps({
   downloading: { type: Boolean, default: false }
 })
 
-defineEmits(['download', 'open', 'click'])
+const emit = defineEmits(['download', 'open', 'click', 'view-sources'])
 
 const meta = computed(() => parseTorrentTitle(props.item.title))
+
+function onCardClick() {
+  // 多站聚合时，点击卡片默认展开来源列表，便于挑选下载
+  if (props.item.sources && props.item.sources.length > 1) {
+    emit('view-sources')
+    return
+  }
+  emit('click')
+}
 
 function formatSize(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -150,6 +171,8 @@ function formatSize(bytes) {
     &.multi-site {
       background: linear-gradient(135deg, #8b5cf6, #d946ef);
       color: #fff;
+      cursor: pointer;
+      &:hover { filter: brightness(1.15); }
     }
     &.season {
       background: #6366f1;
