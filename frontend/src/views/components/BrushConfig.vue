@@ -295,6 +295,11 @@ watch(() => props.modelValue, (newVal) => {
 
 // 同步内部变更到父组件
 watch(config, (newVal) => {
+  // 切换到「站点搜索 API」时主动清掉 rss_url / use_rss，避免历史值导致后端继续走 RSS
+  if (newVal?.feed_source === 'search') {
+    if (newVal.rss_url) newVal.rss_url = ''
+    if (newVal.use_rss) newVal.use_rss = false
+  }
   // 只有当内部变更与外部 prop 不一致时才发射
   if (JSON.stringify(newVal) !== JSON.stringify(props.modelValue)) {
     emit('update:modelValue', JSON.parse(JSON.stringify(newVal)))

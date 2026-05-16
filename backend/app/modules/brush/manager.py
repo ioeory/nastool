@@ -113,10 +113,16 @@ class BrushManager:
             rss_url_override = (
                 (config.get("rss_url") or config.get("rss") or config.get("feed_url") or "")
             ).strip()
-            feed_source = (config.get("feed_source") or "search").strip().lower()
+            feed_source = (config.get("feed_source") or "").strip().lower()
             legacy_use_rss = bool(config.get("use_rss"))
-            # 向后兼容：历史任务可能只保存 use_rss=true，或使用旧的 rss/feed_url 键
-            use_rss = feed_source == "rss" or bool(rss_url_override) or legacy_use_rss
+            if feed_source == "search":
+                # 用户显式选择「站点搜索 API」时，无视历史遗留的 rss_url / use_rss
+                use_rss = False
+            elif feed_source == "rss":
+                use_rss = True
+            else:
+                # 未设置 feed_source：回落到历史字段推断
+                use_rss = bool(rss_url_override) or legacy_use_rss
             logger.info(
                 f"[Brush] 种子来源: feed_source={feed_source!r} legacy_use_rss={legacy_use_rss!r} rss_url="
                 f"{'yes' if rss_url_override else 'no'} → "
