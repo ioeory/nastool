@@ -138,3 +138,14 @@ def test_parse_api_discount_2x_percent_50():
         "status": {"discount": "_2X_PERCENT_50", "seeders": 1, "leechers": 0},
     }
     assert sp._parse_torrents([item])[0].free == "50%"
+
+
+def test_parse_discount_numeric_50():
+    sp = _make_spider()
+    item = {
+        "id": "1",
+        "name": "x",
+        "size": 1000,
+        "status": {"discount": 50, "seeders": 1, "leechers": 0},
+    }
+    assert sp._parse_torrents([item])[0].free == "50%"

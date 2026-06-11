@@ -171,6 +171,27 @@ class BrushManager:
                             torrents.extend(batch)
                         except Exception as e:
                             logger.error(f"[Brush] RSS 抓取站点 {site.name} 失败: {e}")
+
+                if torrents:
+                    from app.modules.brush.mteam_enrich import enrich_mteam_rss_torrent_items
+
+                    search_pages = int(config.get("search_max_pages", 3) or 3)
+                    by_site: dict[int, List[TorrentItem]] = {}
+                    for t in torrents:
+                        by_site.setdefault(t.site_id, []).append(t)
+                    enriched_all: List[TorrentItem] = []
+                    for sid, batch in by_site.items():
+                        site_res = await db.execute(select(Site).where(Site.id == sid))
+                        site_ctx = site_res.scalar_one_or_none()
+                        if site_ctx:
+                            enriched_all.extend(
+                                await enrich_mteam_rss_torrent_items(
+                                    site_ctx, batch, max_pages=search_pages
+                                )
+                            )
+                        else:
+                            enriched_all.extend(batch)
+                    torrents = enriched_all
             else:
                 indexer = IndexerModule(db)
                 # 根据 selection_rules 推导服务端过滤参数（目前主要用于 M-Team API）
@@ -299,35 +320,55 @@ class BrushManager:
                 f"Seeders={t.seeders}, Pubdate={t.pubdate!r}"
             )
 
+            skip_reason: Optional[str] = None
+
             # --- 优惠过滤 ---
             if promotion:
-                # 指定了具体优惠类型
                 if t.free != promotion:
-                    continue
+                    skip_reason = f"free_mismatch: got {t.free!r}, want {promotion!r}"
             elif include_free:
-                # 兼容 RSS/Atom：很多订阅没有结构化优惠字段。
-                # 仅在明确识别到「非免费」时拦截，空标记视为可继续参与匹配。
                 if t.free and t.free != "FREE":
-                    continue
+                    skip_reason = f"include_free_only: got {t.free!r}"
+
+            if skip_reason:
+                logger.info(f"[Brush-Filter] {i+1}. 跳过 — {skip_reason}")
+                continue
 
             # --- H&R 过滤 ---
             if exclude_hr and t.hr:
+                logger.info(f"[Brush-Filter] {i+1}. 跳过 — hr_excluded")
                 continue
 
             # --- 体积过滤 ---
             if min_size > 0 and (t.size or 0) < min_size:
+                logger.info(
+                    f"[Brush-Filter] {i+1}. 跳过 — size_below_min: "
+                    f"{(t.size or 0)/(1024**3):.2f}GB < {min_size/(1024**3):.2f}GB"
+                )
                 continue
             if max_size > 0 and (t.size or 0) > max_size:
+                logger.info(
+                    f"[Brush-Filter] {i+1}. 跳过 — size_above_max: "
+                    f"{(t.size or 0)/(1024**3):.2f}GB > {max_size/(1024**3):.2f}GB"
+                )
                 continue
 
             # --- 做种人数过滤 ---
             if max_seeders > 0 and (t.seeders or 0) > max_seeders:
+                logger.info(
+                    f"[Brush-Filter] {i+1}. 跳过 — seeders_exceed: "
+                    f"{t.seeders} > {max_seeders}"
+                )
                 continue
 
             # --- 发布时间（种子年龄上限，分钟）---
             if max_pub_time > 0:
                 age_min = _torrent_age_minutes(t.pubdate)
                 if age_min is not None and age_min > float(max_pub_time):
+                    logger.info(
+                        f"[Brush-Filter] {i+1}. 跳过 — pubdate_too_old: "
+                        f"age={age_min:.0f}min > max={max_pub_time}min"
+                    )
                     continue
 
             matched.append(t)

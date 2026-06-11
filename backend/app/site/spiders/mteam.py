@@ -119,6 +119,8 @@ def _resolve_free_from_mteam_item(item: dict) -> str:
         "PERCENT_50": "50%",
         "_2X_PERCENT_50": "50%",
         "PERCENT_70": "30%",
+        "50": "50%",
+        "70": "30%",
     }
     if primary in enum_map:
         return enum_map[primary]

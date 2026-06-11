@@ -47,7 +47,7 @@
                 与站点管理中的「RSS 地址」无关，按站点类型调用搜索接口（如 M-Team 为 API）。
               </template>
               <template v-else>
-                从 RSS/Atom 拉取条目；促销信息通常无法解析，选种规则若要求「仅 FREE」可能全部不匹配。
+                从 RSS/Atom 拉取条目；M-Team 等站点会通过 API 尝试补全优惠与体积。
                 填写下方地址则<strong>优先</strong>使用该 URL；留空则使用各站点在「站点管理」里保存的 RSS。
               </template>
             </div>
@@ -152,6 +152,9 @@
                 :min="0" placeholder="0=不限"
                 style="width:100%"
               />
+              <span v-if="showPromotionFilterHint" class="field-hint">
+                筛选半价/免费时，热门种做种人数常超过 100，建议设为 0（不限）
+              </span>
             </el-form-item>
             <el-form-item label="发布时间 (分钟内)">
               <el-input-number
@@ -160,8 +163,21 @@
                 style="width:100%"
               />
               <span class="field-hint">只接受「发布时间」距今不超过该值的种子；列表无时间字段时不筛选</span>
+              <span v-if="showPromotionFilterHint" class="field-hint">
+                筛选指定优惠时，RSS/API 返回的种子可能已发布数小时，建议设为 0（不限）再验证
+              </span>
             </el-form-item>
           </div>
+          <el-alert
+            v-if="showRssPromotionWarning"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+          >
+            M-Team RSS 订阅通常不含结构化优惠字段（页面上 50% 标签不会出现在 RSS 标题里）。
+            后端会尝试通过 API 补全；若仍匹配 0，请改用「站点搜索 API」作为种子来源。
+          </el-alert>
           <div class="tip-box">
             <el-icon><InfoFilled /></el-icon>
             <span>建议：优先选 <strong>仅FREE</strong> + <strong>排除H&R</strong>；按需设置 <strong>最大体积</strong>，防止单种过大撑爆磁盘</span>
@@ -221,7 +237,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { Select, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
 import { siteApi, downloaderApi } from '@/api'
 
@@ -263,6 +279,19 @@ const defaultConfig = {
 }
 
 const config = ref(JSON.parse(JSON.stringify(defaultConfig)))
+
+const showRssPromotionWarning = computed(() => {
+  const promo = config.value?.selection_rules?.promotion
+  return (
+    config.value?.feed_source === 'rss'
+    && ['FREE', '2XFREE', '50%', '30%'].includes(promo)
+  )
+})
+
+const showPromotionFilterHint = computed(() => {
+  const promo = config.value?.selection_rules?.promotion
+  return promo === '50%' || promo === '30%' || promo === '2XFREE' || promo === 'FREE'
+})
 
 // 同步外部变更 (仅当外部值与内部值不一致时更新，防止循环)
 watch(() => props.modelValue, (newVal) => {
