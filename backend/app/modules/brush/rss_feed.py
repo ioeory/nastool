@@ -120,19 +120,37 @@ def _item_all_text(item_el: ET.Element) -> str:
     return " ".join(parts)
 
 
+def _strip_html(text: str) -> str:
+    """RSS description 常含 HTML，去掉标签后再做优惠推断。"""
+    if not text:
+        return ""
+    return re.sub(r"<[^>]+>", " ", text)
+
+
 def _infer_promotion(*parts: str) -> str:
-    text = " ".join(p for p in parts if p).lower()
+    raw = " ".join(p for p in parts if p)
+    text = _strip_html(raw).lower()
     if not text:
         return ""
 
     # 优先识别更具体的优惠类型，再回退到 FREE。
-    if any(token in text for token in ("2xfree", "2x free", "free2up", "twoupfree", "freeleech")):
+    if any(token in text for token in ("2xfree", "2x free", "free2up", "twoupfree", "twoup", "2x免费")):
         return "2XFREE"
-    if "50%" in text or "half" in text:
+    if "50%" in text or "half" in text or "半价" in text:
         return "50%"
-    if "30%" in text:
+    if "30%" in text or "三折" in text:
         return "30%"
-    if any(token in text for token in ("free", "freeleech")):
+    if any(
+        token in text
+        for token in (
+            "free",
+            "freeleech",
+            "免费",
+            "限免",
+            "0% download",
+            "0% 下载",
+        )
+    ):
         return "FREE"
     return ""
 

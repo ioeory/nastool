@@ -131,6 +131,16 @@ def _resolve_free_from_mteam_item(item: dict) -> str:
         return "30%"
     if "FREE" in blob:
         return "FREE"
+
+    # 置顶免费：discount 常为 NORMAL，见 sagan/ptool#54
+    topping = item.get("topping")
+    if isinstance(topping, dict):
+        top_status = str(topping.get("status") or "").upper()
+        if top_status == "ONGOING" and _int_safe(topping.get("freeDay")) > 0:
+            return "FREE"
+    if _int_safe(item.get("toppingLevel")) >= 1 and primary in ("", "NORMAL"):
+        return "FREE"
+
     return ""
 
 

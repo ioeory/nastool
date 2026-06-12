@@ -176,6 +176,8 @@ class BrushManager:
                     from app.modules.brush.mteam_enrich import enrich_mteam_rss_torrent_items
 
                     search_pages = int(config.get("search_max_pages", 3) or 3)
+                    rss_rules = config.get("selection_rules", {}) or {}
+                    rss_promotion = (rss_rules.get("promotion") or "").strip()
                     by_site: dict[int, List[TorrentItem]] = {}
                     for t in torrents:
                         by_site.setdefault(t.site_id, []).append(t)
@@ -186,7 +188,10 @@ class BrushManager:
                         if site_ctx:
                             enriched_all.extend(
                                 await enrich_mteam_rss_torrent_items(
-                                    site_ctx, batch, max_pages=search_pages
+                                    site_ctx,
+                                    batch,
+                                    max_pages=search_pages,
+                                    promotion=rss_promotion or None,
                                 )
                             )
                         else:

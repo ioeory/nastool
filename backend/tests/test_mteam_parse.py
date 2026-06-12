@@ -149,3 +149,17 @@ def test_parse_discount_numeric_50():
         "status": {"discount": 50, "seeders": 1, "leechers": 0},
     }
     assert sp._parse_torrents([item])[0].free == "50%"
+
+
+def test_parse_topping_free_when_discount_normal():
+    """置顶免费：discount=NORMAL 但 topping 进行中。"""
+    sp = _make_spider()
+    item = {
+        "id": "789199",
+        "name": "topped release",
+        "size": 1000,
+        "status": {"discount": "NORMAL", "seeders": 5, "leechers": 1},
+        "toppingLevel": 1,
+        "topping": {"status": "ONGOING", "freeDay": "3"},
+    }
+    assert sp._parse_torrents([item])[0].free == "FREE"

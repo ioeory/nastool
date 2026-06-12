@@ -12,7 +12,24 @@ from app.schemas import TorrentItem
 from app.site.registry import SiteRegistry
 from app.site.spiders.mteam import MTeamSpider, _extract_torrent_id_from_url
 
-_DISCOUNT_QUERIES = (None, "PERCENT_50", "FREE", "_2X_FREE", "PERCENT_70")
+_DEFAULT_DISCOUNT_QUERIES = (None, "PERCENT_50", "FREE", "_2X_FREE", "PERCENT_70")
+
+_PROMOTION_TO_API: dict[str, str] = {
+    "FREE": "FREE",
+    "2XFREE": "_2X_FREE",
+    "50%": "PERCENT_50",
+    "30%": "PERCENT_70",
+}
+
+
+def _discount_queries_for(promotion: Optional[str]) -> tuple[Optional[str], ...]:
+    """按选种规则优先查询目标优惠类型，提高 RSS 补全命中率。"""
+    key = (promotion or "").strip().upper()
+    preferred = _PROMOTION_TO_API.get(key)
+    if not preferred:
+        return _DEFAULT_DISCOUNT_QUERIES
+    rest = [q for q in _DEFAULT_DISCOUNT_QUERIES if q != preferred]
+    return (preferred,) + tuple(rest)
 
 
 def _torrent_id_from_item(item: TorrentItem) -> Optional[str]:
@@ -40,6 +57,7 @@ async def enrich_mteam_rss_torrent_items(
     items: List[TorrentItem],
     *,
     max_pages: int = 3,
+    promotion: Optional[str] = None,
 ) -> List[TorrentItem]:
     """
     对 M-Team RSS 解析出的 TorrentItem 调用 Search API 补全优惠与体积/做种数。
@@ -69,12 +87,15 @@ async def enrich_mteam_rss_torrent_items(
 
     try:
         pages = max(1, int(max_pages or 3))
-        for discount in _DISCOUNT_QUERIES:
+        queries = _discount_queries_for(promotion)
+        preferred = _PROMOTION_TO_API.get((promotion or "").strip().upper())
+        for discount in queries:
+            query_pages = pages + 2 if discount == preferred else pages
             batch = await spider.search(
                 keyword="",
                 page=1,
                 discount=discount,
-                max_pages=pages,
+                max_pages=query_pages,
             )
             for t in batch:
                 tid = _torrent_id_from_item(t)
