@@ -6,6 +6,7 @@ Search 返回体结构见 github.com/sagan/ptool/site/mtorrent/types.go：
   - 优惠在 status.discount，取值如 FREE / PERCENT_50 / PERCENT_70 / NORMAL
 """
 from typing import Any, List, Optional
+import asyncio
 import httpx
 import re
 from loguru import logger
@@ -14,6 +15,16 @@ from urllib.parse import urljoin
 from app.site.spiders.base import BaseSpider
 from app.schemas import TorrentItem
 from app.utils.url import extract_domain
+
+# M-Team API 频率限制较严（ptool 默认 flowControlInterval=30s）；连续请求需间隔
+MTeam_API_REQUEST_INTERVAL_SEC = 3.0
+MTeam_RATE_LIMIT_BACKOFF_SEC = 30.0
+_RATE_LIMIT_MARKERS = ("過於頻繁", "过于频繁", "too frequent", "rate limit", "too many")
+
+
+def _is_rate_limit_message(message: Any) -> bool:
+    text = str(message or "").lower()
+    return any(m.lower() in text for m in _RATE_LIMIT_MARKERS)
 
 
 def _int_safe(value: Any) -> int:
@@ -200,7 +211,8 @@ class MTeamSpider(BaseSpider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.domain = extract_domain(self.url)
-        # M-Team API 域名一般为 api.{domain} 
+        self._last_rate_limited = False
+        # M-Team API 域名一般为 api.{domain}
         # 用户通常填的大多是 kp.m-team.io
         if self.domain.startswith("kp."):
             self.api_base = f"https://api.{self.domain[3:]}"
@@ -253,8 +265,10 @@ class MTeamSpider(BaseSpider):
         )
 
         merged: dict[str, dict] = {}
+        self._last_rate_limited = False
         try:
             async with await self.get_client() as client:
+                first_request = True
                 for mode in ("normal", "adult"):
                     for offset in range(max_pages):
                         cur_page = page + offset
@@ -267,20 +281,50 @@ class MTeamSpider(BaseSpider):
                         }
                         if discount:
                             payload["discount"] = discount
-                        resp = await client.post(url, json=payload)
-                        if resp.status_code != 200:
+
+                        async def _post_once() -> tuple[dict, bool]:
+                            resp = await client.post(url, json=payload)
+                            if resp.status_code != 200:
+                                logger.warning(
+                                    f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
+                                    f"HTTP {resp.status_code}"
+                                )
+                                return {}, False
+                            data = resp.json()
+                            if str(data.get("code")) != "0":
+                                msg = data.get("message")
+                                if _is_rate_limit_message(msg):
+                                    return data, True
+                                logger.warning(
+                                    f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
+                                    f"业务错误: {msg}"
+                                )
+                                return {}, False
+                            return data, False
+
+                        if not first_request:
+                            await asyncio.sleep(MTeam_API_REQUEST_INTERVAL_SEC)
+                        first_request = False
+
+                        data, rate_limited = await _post_once()
+                        if rate_limited:
                             logger.warning(
-                                f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
-                                f"HTTP {resp.status_code}"
+                                f"/{self.site.name}/ 搜索触发频率限制，"
+                                f"{MTeam_RATE_LIMIT_BACKOFF_SEC:.0f}s 后重试一次 "
+                                f"(mode={mode} page={cur_page})"
                             )
+                            await asyncio.sleep(MTeam_RATE_LIMIT_BACKOFF_SEC)
+                            data, rate_limited = await _post_once()
+                            if rate_limited:
+                                self._last_rate_limited = True
+                                logger.warning(
+                                    f"/{self.site.name}/ 重试仍被频率限制，中止本次搜索"
+                                )
+                                break
+
+                        if not data or str(data.get("code")) != "0":
                             break
-                        data = resp.json()
-                        if str(data.get("code")) != "0":
-                            logger.warning(
-                                f"/{self.site.name}/ 搜索 mode={mode} page={cur_page} "
-                                f"业务错误: {data.get('message')}"
-                            )
-                            break
+
                         rows = data.get("data", {}).get("data", []) or []
                         for row in rows:
                             rid = row.get("id")
@@ -288,8 +332,9 @@ class MTeamSpider(BaseSpider):
                                 continue
                             merged[str(rid)] = row
                         if len(rows) < 100:
-                            # 已是最后一页，不再继续翻
                             break
+                    if self._last_rate_limited:
+                        break
 
             items = list(merged.values())
             logger.info(
